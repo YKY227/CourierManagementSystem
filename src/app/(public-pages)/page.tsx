@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 
+
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-white to-slate-50">
@@ -31,7 +32,7 @@ export default function LandingPage() {
         <div className="mt-10 grid gap-6 md:grid-cols-3">
           <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
             <h3 className="text-lg font-semibold text-slate-900">Same Day Delivery</h3>
-            <p classscr="text-sm text-slate-600 mt-2">
+            <p className="text-sm text-slate-600 mt-2">
               Pickup and deliver on the same day between 8am–5:30pm.
             </p>
           </div>
