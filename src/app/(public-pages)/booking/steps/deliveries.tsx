@@ -1,22 +1,30 @@
-// src/app/(public-pages)/booking/steps/deliveries.tsx
 "use client";
 
-import { useEffect, useState, FormEvent } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useForm, useFieldArray } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+
 import { StepLayout } from "../../../../components/wizard/StepLayout";
+import { FormField } from "../../../../components/forms/FormField";
 import {
   useBooking,
   DeliveryPoint,
-  createEmptyDelivery,
 } from "../../../../lib/booking-store";
-
-let idCounter = 1;
-const nextId = () => `D-${idCounter++}`;
+import {
+  deliveriesSchema,
+  DeliveriesFormSchema,
+} from "../../../../lib/validation/deliveries";
 
 export default function DeliveriesStep() {
   const router = useRouter();
-  const { serviceType, routeType, pickup, deliveries, setDeliveries } =
-    useBooking();
+  const {
+    serviceType,
+    routeType,
+    pickup,
+    deliveries,
+    setDeliveries,
+  } = useBooking();
 
   // 🛡 Wizard guards
   useEffect(() => {
@@ -34,65 +42,80 @@ export default function DeliveriesStep() {
     }
   }, [serviceType, routeType, pickup, router]);
 
-  const [localDeliveries, setLocalDeliveries] = useState<DeliveryPoint[]>(() => {
-    if (deliveries && deliveries.length > 0) return deliveries;
-    // Start with one blank delivery
-    return [createEmptyDelivery(nextId())];
+  // Prepare default form values
+  const defaultValues: DeliveriesFormSchema = {
+    deliveries:
+      deliveries && deliveries.length > 0
+        ? deliveries.map((d) => ({
+            contactName: d.contactName,
+            contactPhone: d.contactPhone,
+            contactEmail: d.contactEmail,
+            addressLine1: d.addressLine1,
+            addressLine2: d.addressLine2,
+            postalCode: d.postalCode,
+            remarks: d.remarks,
+            saveAsFavorite: d.saveAsFavorite,
+          }))
+        : [
+            {
+              contactName: "",
+              contactPhone: "",
+              contactEmail: "",
+              addressLine1: "",
+              addressLine2: "",
+              postalCode: "",
+              remarks: "",
+              saveAsFavorite: true,
+            },
+          ],
+  };
+
+  const {
+    control,
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<DeliveriesFormSchema>({
+    resolver: zodResolver(deliveriesSchema),
+    defaultValues,
   });
 
-  const handleChange = (
-    index: number,
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
-  ) => {
-    const { name, value, type, checked } = e.target as
-      | HTMLInputElement
-      | HTMLTextAreaElement;
-    setLocalDeliveries((prev) =>
-      prev.map((d, i) =>
-        i === index
-          ? {
-              ...d,
-              [name]: type === "checkbox" ? checked : value,
-            }
-          : d
-      )
-    );
-  };
+  const { fields, append, remove } = useFieldArray({
+    control,
+    name: "deliveries",
+  });
 
-  const handleAddDelivery = () => {
-    setLocalDeliveries((prev) => [
-      ...prev,
-      createEmptyDelivery(nextId()),
-    ]);
-  };
-
-  const handleRemoveDelivery = (index: number) => {
-    setLocalDeliveries((prev) => {
-      if (prev.length === 1) return prev; // keep at least one
-      return prev.filter((_, i) => i !== index);
+  const onAddDelivery = () => {
+    append({
+      contactName: "",
+      contactPhone: "",
+      contactEmail: "",
+      addressLine1: "",
+      addressLine2: "",
+      postalCode: "",
+      remarks: "",
+      saveAsFavorite: true,
     });
   };
 
-  const handleSubmit = (e: FormEvent) => {
-    e.preventDefault();
+  const onSubmit = (data: DeliveriesFormSchema) => {
+    const mapped: DeliveryPoint[] = data.deliveries.map((d, index) => {
+      const existing = deliveries[index];
 
-    // Basic validation: ensure all deliveries have at least address + postal + contact
-    const invalid = localDeliveries.some(
-      (d) =>
-        !d.addressLine1.trim() ||
-        !d.postalCode.trim() ||
-        !d.contactName.trim() ||
-        !d.contactPhone.trim()
-    );
+      return {
+        id: existing?.id ?? `D-${Date.now()}-${index}`,
+        contactName: d.contactName,
+        contactPhone: d.contactPhone,
+        contactEmail: d.contactEmail || "",
+        addressLine1: d.addressLine1,
+        addressLine2: d.addressLine2 || "",
+        postalCode: d.postalCode,
+        remarks: d.remarks || "",
+        saveAsFavorite: d.saveAsFavorite,
+      };
+    });
 
-    if (invalid) {
-      alert(
-        "Please fill in at least contact name, phone, address and postal code for each delivery point."
-      );
-      return;
-    }
-
-    setDeliveries(localDeliveries);
+    setDeliveries(mapped);
     router.push("/booking/steps/items");
   };
 
@@ -114,163 +137,152 @@ export default function DeliveriesStep() {
   return (
     <StepLayout
       title="Delivery Points"
-      subtitle={`Define where the items will be delivered. Route type: ${routeLabel}`}
+      subtitle={`Specify the delivery locations. Route type: ${routeLabel}`}
       currentStep={4}
       totalSteps={8}
       backHref="/booking/steps/pickup"
     >
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {localDeliveries.map((d, index) => (
-          <div
-            key={d.id}
-            className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 space-y-3"
-          >
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-800">
-                Delivery Point #{index + 1}
-              </h2>
-              <button
-                type="button"
-                onClick={() => handleRemoveDelivery(index)}
-                disabled={localDeliveries.length === 1}
-                className="text-xs text-slate-500 hover:text-red-600 disabled:opacity-40 disabled:cursor-not-allowed"
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        {fields.map((field, index) => {
+          const fieldErrors = errors.deliveries?.[index];
+
+          return (
+            <div
+              key={field.id}
+              className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 space-y-3"
+            >
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-slate-800">
+                  Delivery Point #{index + 1}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => remove(index)}
+                  disabled={fields.length === 1}
+                  className="text-xs text-slate-500 hover:text-red-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Remove
+                </button>
+              </div>
+
+              {/* Recipient */}
+              <div className="grid gap-3 md:grid-cols-2">
+                <FormField
+                  label="Recipient Name"
+                  required
+                  error={fieldErrors?.contactName?.message}
+                >
+                  <input
+                    {...register(`deliveries.${index}.contactName`)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  />
+                </FormField>
+
+                <FormField
+                  label="Recipient Phone"
+                  required
+                  error={fieldErrors?.contactPhone?.message}
+                >
+                  <input
+                    {...register(`deliveries.${index}.contactPhone`)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  />
+                </FormField>
+
+                <FormField
+                  label="Recipient Email"
+                  error={fieldErrors?.contactEmail?.message}
+                  description="Optional"
+                >
+                  <input
+                    {...register(`deliveries.${index}.contactEmail`)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  />
+                </FormField>
+              </div>
+
+              {/* Address  */}
+              <FormField
+                label="Delivery Address Line 1"
+                required
+                error={fieldErrors?.addressLine1?.message}
               >
-                Remove
-              </button>
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-700">
-                  Recipient Name <span className="text-red-500">*</span>
-                </label>
                 <input
-                  type="text"
-                  name="contactName"
-                  value={d.contactName}
-                  onChange={(e) => handleChange(index, e)}
+                  {...register(`deliveries.${index}.addressLine1`)}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                />
+              </FormField>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <FormField label="Address Line 2" description="Optional">
+                  <input
+                    {...register(`deliveries.${index}.addressLine2`)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  />
+                </FormField>
+
+                <FormField
+                  label="Postal Code"
                   required
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                  placeholder="Who will receive the parcel?"
-                />
+                  error={fieldErrors?.postalCode?.message}
+                >
+                  <input
+                    {...register(`deliveries.${index}.postalCode`)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  />
+                </FormField>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-700">
-                  Recipient Phone <span className="text-red-500">*</span>
+              {/* Remarks */}
+              <FormField
+                label="Delivery Instructions / Remarks"
+                description="Optional"
+              >
+                <textarea
+                  {...register(`deliveries.${index}.remarks`)}
+                  rows={2}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                />
+              </FormField>
+
+              {/* Save as favorite */}
+              <div className="flex items-center justify-between">
+                <label className="inline-flex items-center gap-2 text-xs text-slate-700">
+                  <input
+                    type="checkbox"
+                    {...register(`deliveries.${index}.saveAsFavorite`)}
+                  />
+                  Save this as a favorite delivery address
                 </label>
-                <input
-                  type="tel"
-                  name="contactPhone"
-                  value={d.contactPhone}
-                  onChange={(e) => handleChange(index, e)}
-                  required
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                  placeholder="+65 8XXX XXXX"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-700">
-                  Recipient Email (optional)
-                </label>
-                <input
-                  type="email"
-                  name="contactEmail"
-                  value={d.contactEmail}
-                  onChange={(e) => handleChange(index, e)}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                  placeholder="For delivery notifications"
-                />
               </div>
             </div>
+          );
+        })}
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-700">
-                Delivery Address <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                name="addressLine1"
-                value={d.addressLine1}
-                onChange={(e) => handleChange(index, e)}
-                required
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                placeholder="Block / Street / Building"
-              />
-              <input
-                type="text"
-                name="addressLine2"
-                value={d.addressLine2}
-                onChange={(e) => handleChange(index, e)}
-                className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                placeholder="Unit / Level / Additional details (optional)"
-              />
-            </div>
-
-            <div className="space-y-1.5 max-w-xs">
-              <label className="text-xs font-medium text-slate-700">
-                Postal Code <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                name="postalCode"
-                value={d.postalCode}
-                onChange={(e) => handleChange(index, e)}
-                required
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                placeholder="e.g. 654321"
-              />
-              <p className="text-[11px] text-slate-500">
-                Used to validate location and estimate distance.
-              </p>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-700">
-                Delivery Instructions / Remarks (optional)
-              </label>
-              <textarea
-                name="remarks"
-                value={d.remarks}
-                onChange={(e) => handleChange(index, e)}
-                rows={2}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                placeholder="e.g. Leave at reception, call before arrival, guard house, etc."
-              />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <label className="inline-flex items-center gap-2 text-xs text-slate-700">
-                <input
-                  type="checkbox"
-                  name="saveAsFavorite"
-                  checked={d.saveAsFavorite}
-                  onChange={(e) => handleChange(index, e)}
-                  className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
-                />
-                Save this as a favorite delivery address
-              </label>
-            </div>
-          </div>
-        ))}
-
+        {/* Add & Continue */}
         <div className="flex items-center justify-between">
           <button
             type="button"
-            onClick={handleAddDelivery}
+            onClick={onAddDelivery}
             className="inline-flex items-center rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:border-sky-400 hover:text-sky-700"
           >
             + Add another delivery point
           </button>
 
-          <button
-            type="submit"
-            className="inline-flex items-center rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-1"
-          >
-            Continue to Items →
-          </button>
+        <button
+          type="submit"
+          className="inline-flex items-center rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700"
+        >
+          Continue to Items →
+        </button>
         </div>
+
+        {/* Top-level array error */}
+        {errors.deliveries && !Array.isArray(errors.deliveries) && (
+          <p className="text-[11px] text-red-500">
+            {errors.deliveries.message as string}
+          </p>
+        )}
       </form>
     </StepLayout>
   );

@@ -1,15 +1,22 @@
 // src/app/(public-pages)/booking/steps/items.tsx
 "use client";
 
-import { useEffect, useMemo, useState, FormEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+
 import { StepLayout } from "../../../../components/wizard/StepLayout";
+import { FormField } from "../../../../components/forms/FormField";
 import {
   useBooking,
   DeliveryItem,
   ItemCategory,
-  createEmptyItem,
 } from "../../../../lib/booking-store";
+import {
+  itemSchema,
+  ItemFormSchema,
+} from "../../../../lib/validation/item";
 
 let itemIdCounter = 1;
 const nextItemId = () => `I-${itemIdCounter++}`;
@@ -29,6 +36,229 @@ const categoryOptions: { id: ItemCategory; label: string }[] = [
   { id: "oversized", label: "Oversized" },
   { id: "other", label: "Other" },
 ];
+
+// Helper to compute volumetric weight
+function computeVolumetricWeight(
+  lengthCm: number,
+  widthCm: number,
+  heightCm: number
+) {
+  if (!lengthCm || !widthCm || !heightCm) return 0;
+  // Standard formula: (L x W x H) / 5000
+  return Math.round(((lengthCm * widthCm * heightCm) / 5000) * 100) / 100;
+}
+
+function ItemModal({
+  editing,
+  existingItem,
+  onClose,
+  onSave,
+}: {
+  editing: { deliveryId: string; itemId?: string };
+  existingItem: DeliveryItem | null;
+  onClose: () => void;
+  onSave: (item: DeliveryItem) => void;
+}) {
+  const {
+    register,
+    handleSubmit,
+    watch,
+    formState: { errors },
+  } = useForm<ItemFormSchema>({
+    resolver: zodResolver(itemSchema),
+    defaultValues: existingItem
+      ? {
+          description: existingItem.description,
+          category: existingItem.category,
+          quantity: existingItem.quantity,
+          weightKg: existingItem.weightKg,
+          lengthCm: existingItem.lengthCm,
+          widthCm: existingItem.widthCm,
+          heightCm: existingItem.heightCm,
+          remarks: existingItem.remarks ?? "",
+        }
+      : {
+          description: "",
+          category: "parcel",
+          quantity: 1,
+          weightKg: 0,
+          lengthCm: 0,
+          widthCm: 0,
+          heightCm: 0,
+          remarks: "",
+        },
+  });
+
+  const length = watch("lengthCm") || 0;
+  const width = watch("widthCm") || 0;
+  const height = watch("heightCm") || 0;
+  const volWeight = computeVolumetricWeight(length, width, height);
+
+  const onSubmit = (data: ItemFormSchema) => {
+    const id = existingItem?.id ?? nextItemId();
+    const updatedItem: DeliveryItem = {
+      id,
+      deliveryId: editing.deliveryId,
+      description: data.description,
+      category: data.category,
+      quantity: data.quantity,
+      weightKg: data.weightKg,
+      lengthCm: data.lengthCm,
+      widthCm: data.widthCm,
+      heightCm: data.heightCm,
+      volumetricWeightKg: volWeight,
+      remarks: data.remarks ?? "",
+    };
+
+    onSave(updatedItem);
+  };
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
+      <div className="w-full max-w-md rounded-xl bg-white p-4 shadow-lg">
+        <h2 className="mb-1 text-sm font-semibold text-slate-900">
+          {editing.itemId ? "Edit Item" : "Add Item"}
+        </h2>
+        <p className="mb-3 text-[11px] text-slate-500">
+          For delivery point{" "}
+          <span className="font-mono text-slate-700">
+            {editing.deliveryId}
+          </span>
+        </p>
+
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
+          {/* Description */}
+          <FormField
+            label="Item Description"
+            required
+            error={errors.description?.message}
+          >
+            <input
+              type="text"
+              {...register("description")}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+              placeholder="e.g. Laptop box, A4 documents, sample products"
+            />
+          </FormField>
+
+          {/* Category + Quantity */}
+          <div className="grid gap-2 md:grid-cols-2">
+            <FormField
+              label="Category"
+              error={errors.category?.message}
+            >
+              <select
+                {...register("category")}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+              >
+                {categoryOptions.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+
+            <FormField
+              label="Quantity"
+              error={errors.quantity?.message}
+            >
+              <input
+                type="number"
+                min={1}
+                {...register("quantity", { valueAsNumber: true })}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+              />
+            </FormField>
+          </div>
+
+          {/* Weight + Dimensions */}
+          <div className="grid gap-2 md:grid-cols-2">
+            <FormField
+              label="Actual Weight (kg)"
+              error={errors.weightKg?.message}
+            >
+              <input
+                type="number"
+                min={0}
+                step={0.1}
+                {...register("weightKg", { valueAsNumber: true })}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+              />
+            </FormField>
+
+            <FormField
+              label="Dimensions (cm)"
+              error={
+                errors.lengthCm?.message ||
+                errors.widthCm?.message ||
+                errors.heightCm?.message
+              }
+            >
+              <div className="flex gap-1">
+                <input
+                  type="number"
+                  min={0}
+                  placeholder="L"
+                  {...register("lengthCm", { valueAsNumber: true })}
+                  className="w-1/3 rounded-lg border border-slate-200 px-2 py-2 text-xs focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                />
+                <input
+                  type="number"
+                  min={0}
+                  placeholder="W"
+                  {...register("widthCm", { valueAsNumber: true })}
+                  className="w-1/3 rounded-lg border border-slate-200 px-2 py-2 text-xs focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                />
+                <input
+                  type="number"
+                  min={0}
+                  placeholder="H"
+                  {...register("heightCm", { valueAsNumber: true })}
+                  className="w-1/3 rounded-lg border border-slate-200 px-2 py-2 text-xs focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                />
+              </div>
+              <p className="text-[10px] text-slate-500">
+                Volumetric weight (L × W × H ÷ 5000):{" "}
+                <span className="font-semibold">{volWeight} kg</span>
+              </p>
+            </FormField>
+          </div>
+
+          {/* Remarks */}
+          <FormField
+            label="Special Handling / Remarks"
+            description="Optional"
+          >
+            <textarea
+              rows={2}
+              {...register("remarks")}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+              placeholder="e.g. Fragile – handle with care, do not stack, keep upright…"
+            />
+          </FormField>
+
+          {/* Buttons */}
+          <div className="mt-3 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-xs text-slate-600 hover:text-slate-800"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="inline-flex items-center rounded-lg bg-sky-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-1"
+            >
+              Save Item
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
 
 export default function ItemsStep() {
   const router = useRouter();
@@ -63,26 +293,6 @@ export default function ItemsStep() {
 
   const [localItems, setLocalItems] = useState<DeliveryItem[]>(() => items);
   const [editing, setEditing] = useState<EditingState>(null);
-  const [form, setForm] = useState<DeliveryItem | null>(null);
-
-  // When editing changes, initialise form state
-  useEffect(() => {
-    if (!editing) {
-      setForm(null);
-      return;
-    }
-    const { deliveryId, itemId } = editing;
-
-    if (itemId) {
-      const existing = localItems.find((i) => i.id === itemId);
-      if (existing) {
-        setForm({ ...existing });
-        return;
-      }
-    }
-    // New item
-    setForm(createEmptyItem(nextItemId(), deliveryId));
-  }, [editing, localItems]);
 
   const itemsByDelivery = useMemo(() => {
     const map: Record<string, DeliveryItem[]> = {};
@@ -95,50 +305,6 @@ export default function ItemsStep() {
     }
     return map;
   }, [deliveries, localItems]);
-
-  const handleItemFormChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
-  ) => {
-    if (!form) return;
-    const { name, value } = e.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
-    setForm((prev) => {
-      if (!prev) return prev;
-      if (name === "quantity") {
-        return { ...prev, [name]: Number(value) || 0 };
-      }
-      if (name === "weightKg" || name === "lengthCm" || name === "widthCm" || name === "heightCm") {
-        return { ...prev, [name]: Number(value) || 0 };
-      }
-      return { ...prev, [name]: value };
-    });
-  };
-
-  const computeVolumetricWeight = (lengthCm: number, widthCm: number, heightCm: number) => {
-    if (!lengthCm || !widthCm || !heightCm) return 0;
-    // Standard formula: (L x W x H) / 5000
-    return Math.round(((lengthCm * widthCm * heightCm) / 5000) * 100) / 100;
-  };
-
-  const handleSaveItem = (e: FormEvent) => {
-    e.preventDefault();
-    if (!form) return;
-
-    const vol = computeVolumetricWeight(form.lengthCm, form.widthCm, form.heightCm);
-    const updated: DeliveryItem = {
-      ...form,
-      volumetricWeightKg: vol,
-    };
-
-    setLocalItems((prev) => {
-      const exists = prev.some((i) => i.id === updated.id);
-      if (exists) {
-        return prev.map((i) => (i.id === updated.id ? updated : i));
-      }
-      return [...prev, updated];
-    });
-
-    setEditing(null);
-  };
 
   const handleRemoveItem = (itemId: string) => {
     setLocalItems((prev) => prev.filter((i) => i.id !== itemId));
@@ -172,7 +338,7 @@ export default function ItemsStep() {
             return (
               <div
                 key={d.id}
-                className="rounded-xl border border-slate-200 bg-white p-4 space-y-3"
+                className="space-y-3 rounded-xl border border-slate-200 bg-white p-4"
               >
                 <div className="flex items-center justify-between">
                   <div>
@@ -181,7 +347,8 @@ export default function ItemsStep() {
                     </h2>
                     <p className="text-xs text-slate-600">
                       {d.addressLine1}
-                      {d.addressLine2 ? `, ${d.addressLine2}` : ""} ({d.postalCode})
+                      {d.addressLine2 ? `, ${d.addressLine2}` : ""} (
+                      {d.postalCode})
                     </p>
                     <p className="text-[11px] text-slate-500">
                       Recipient: {d.contactName} · {d.contactPhone}
@@ -189,9 +356,7 @@ export default function ItemsStep() {
                   </div>
                   <button
                     type="button"
-                    onClick={() =>
-                      setEditing({ deliveryId: d.id })
-                    }
+                    onClick={() => setEditing({ deliveryId: d.id })}
                     className="inline-flex items-center rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-sky-400 hover:text-sky-700"
                   >
                     + Add Item
@@ -206,7 +371,8 @@ export default function ItemsStep() {
                   <div className="space-y-2">
                     {itemsForDelivery.map((item) => {
                       const billable =
-                        item.volumetricWeightKg && item.volumetricWeightKg > item.weightKg
+                        item.volumetricWeightKg &&
+                        item.volumetricWeightKg > item.weightKg
                           ? item.volumetricWeightKg
                           : item.weightKg;
 
@@ -224,7 +390,8 @@ export default function ItemsStep() {
                             </p>
                             <p className="text-[11px] text-slate-600">
                               Actual: {item.weightKg || 0} kg · Vol:{" "}
-                              {item.volumetricWeightKg || 0} kg · Billable: {billable || 0} kg
+                              {item.volumetricWeightKg || 0} kg · Billable:{" "}
+                              {billable || 0} kg
                             </p>
                             {item.remarks && (
                               <p className="text-[11px] text-slate-500">
@@ -281,157 +448,28 @@ export default function ItemsStep() {
         </div>
       </div>
 
-      {/* Simple modal / popup */}
-      {editing && form && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-md rounded-xl bg-white p-4 shadow-lg">
-            <h2 className="text-sm font-semibold text-slate-900 mb-1">
-              {editing.itemId ? "Edit Item" : "Add Item"}
-            </h2>
-            <p className="text-[11px] text-slate-500 mb-3">
-              For delivery point{" "}
-              <span className="font-mono text-slate-700">
-                {editing.deliveryId}
-              </span>
-            </p>
-
-            <form onSubmit={handleSaveItem} className="space-y-3">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-700">
-                  Item Description <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  name="description"
-                  value={form.description}
-                  onChange={handleItemFormChange}
-                  required
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                  placeholder="e.g. Laptop box, A4 documents, sample products"
-                />
-              </div>
-
-              <div className="grid gap-2 md:grid-cols-2">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-700">
-                    Category
-                  </label>
-                  <select
-                    name="category"
-                    value={form.category}
-                    onChange={handleItemFormChange}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                  >
-                    {categoryOptions.map((opt) => (
-                      <option key={opt.id} value={opt.id}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-700">
-                    Quantity
-                  </label>
-                  <input
-                    type="number"
-                    name="quantity"
-                    min={1}
-                    value={form.quantity}
-                    onChange={handleItemFormChange}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid gap-2 md:grid-cols-2">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-700">
-                    Actual Weight (kg)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.1}
-                    name="weightKg"
-                    value={form.weightKg}
-                    onChange={handleItemFormChange}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-700">
-                    Dimensions (cm)
-                  </label>
-                  <div className="flex gap-1">
-                    <input
-                      type="number"
-                      min={0}
-                      name="lengthCm"
-                      value={form.lengthCm}
-                      onChange={handleItemFormChange}
-                      placeholder="L"
-                      className="w-1/3 rounded-lg border border-slate-200 px-2 py-2 text-xs focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                    />
-                    <input
-                      type="number"
-                      min={0}
-                      name="widthCm"
-                      value={form.widthCm}
-                      onChange={handleItemFormChange}
-                      placeholder="W"
-                      className="w-1/3 rounded-lg border border-slate-200 px-2 py-2 text-xs focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                    />
-                    <input
-                      type="number"
-                      min={0}
-                      name="heightCm"
-                      value={form.heightCm}
-                      onChange={handleItemFormChange}
-                      placeholder="H"
-                      className="w-1/3 rounded-lg border border-slate-200 px-2 py-2 text-xs focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                    />
-                  </div>
-                  <p className="text-[10px] text-slate-500">
-                    Volumetric weight will be calculated using (L × W × H) ÷ 5000.
-                  </p>
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-700">
-                  Special Handling / Remarks (optional)
-                </label>
-                <textarea
-                  name="remarks"
-                  value={form.remarks}
-                  onChange={handleItemFormChange}
-                  rows={2}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                  placeholder="e.g. Fragile – handle with care, do not stack, keep upright…"
-                />
-              </div>
-
-              <div className="mt-3 flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={() => setEditing(null)}
-                  className="text-xs text-slate-600 hover:text-slate-800"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="inline-flex items-center rounded-lg bg-sky-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-1"
-                >
-                  Save Item
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {/* Modal */}
+      {editing && (
+        <ItemModal
+          editing={editing}
+          existingItem={
+            editing.itemId
+              ? localItems.find((i) => i.id === editing.itemId) ?? null
+              : null
+          }
+          onClose={() => setEditing(null)}
+          onSave={(updatedItem) => {
+            setLocalItems((prev) => {
+              const exists = prev.some((i) => i.id === updatedItem.id);
+              if (exists) {
+                return prev.map((i) =>
+                  i.id === updatedItem.id ? updatedItem : i
+                );
+              }
+              return [...prev, updatedItem];
+            });
+          }}
+        />
       )}
     </StepLayout>
   );

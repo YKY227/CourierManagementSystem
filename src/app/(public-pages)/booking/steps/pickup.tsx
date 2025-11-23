@@ -4,7 +4,9 @@ import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
+
 import { StepLayout } from "../../../../components/wizard/StepLayout";
+import { FormField } from "../../../../components/forms/FormField";
 import { useBooking, createEmptyPickup } from "../../../../lib/booking-store";
 import { pickupSchema, PickupSchema } from "../../../../lib/validation/pickup";
 
@@ -22,7 +24,6 @@ export default function PickupStep() {
     register,
     handleSubmit,
     formState: { errors },
-    setValue,
   } = useForm<PickupSchema>({
     resolver: zodResolver(pickupSchema),
     defaultValues: pickup ?? createEmptyPickup(),
@@ -43,102 +44,101 @@ export default function PickupStep() {
     >
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         <div className="grid gap-4 md:grid-cols-2">
-          {/* Contact name */}
-          <div>
-            <label className="text-xs font-medium text-slate-700">
-              Contact Name *
-            </label>
+          <FormField
+            label="Contact Name"
+            htmlFor="contactName"
+            required
+            error={errors.contactName?.message}
+          >
             <input
+              id="contactName"
               {...register("contactName")}
               className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
             />
-            {errors.contactName && (
-              <p className="text-[11px] text-red-500">{errors.contactName.message}</p>
-            )}
-          </div>
+          </FormField>
 
-          {/* Phone */}
-          <div>
-            <label className="text-xs font-medium text-slate-700">
-              Contact Phone *
-            </label>
+          <FormField
+            label="Contact Phone"
+            htmlFor="contactPhone"
+            required
+            error={errors.contactPhone?.message}
+          >
             <input
+              id="contactPhone"
               {...register("contactPhone")}
               className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
             />
-            {errors.contactPhone && (
-              <p className="text-[11px] text-red-500">{errors.contactPhone.message}</p>
-            )}
-          </div>
+          </FormField>
         </div>
 
-        {/* Email */}
-        <div>
-          <label className="text-xs font-medium text-slate-700">
-            Email (optional)
-          </label>
+        <FormField
+          label="Email"
+          htmlFor="contactEmail"
+          error={errors.contactEmail?.message}
+          description="Optional"
+        >
           <input
+            id="contactEmail"
             {...register("contactEmail")}
             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
           />
-          {errors.contactEmail && (
-            <p className="text-[11px] text-red-500">{errors.contactEmail.message}</p>
-          )}
-        </div>
+        </FormField>
 
-        {/* Address */}
-        <div>
-          <label className="text-xs font-medium text-slate-700">
-            Address Line 1 *
-          </label>
+        <FormField
+          label="Address Line 1"
+          htmlFor="addressLine1"
+          required
+          error={errors.addressLine1?.message}
+        >
           <input
+            id="addressLine1"
             {...register("addressLine1")}
             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
           />
-          {errors.addressLine1 && (
-            <p className="text-[11px] text-red-500">{errors.addressLine1.message}</p>
-          )}
-        </div>
+        </FormField>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <div>
-            <label className="text-xs font-medium text-slate-700">
-              Address Line 2 (optional)
-            </label>
+          <FormField
+            label="Address Line 2"
+            htmlFor="addressLine2"
+            description="Optional"
+          >
             <input
+              id="addressLine2"
               {...register("addressLine2")}
               className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
             />
-          </div>
+          </FormField>
 
-          <div>
-            <label className="text-xs font-medium text-slate-700">
-              Postal Code *
-            </label>
+          <FormField
+            label="Postal Code"
+            htmlFor="postalCode"
+            required
+            error={errors.postalCode?.message}
+          >
             <input
+              id="postalCode"
               {...register("postalCode")}
               className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
             />
-            {errors.postalCode && (
-              <p className="text-[11px] text-red-500">{errors.postalCode.message}</p>
-            )}
-          </div>
+          </FormField>
         </div>
 
-        {/* Remarks */}
-        <div>
-          <label className="text-xs font-medium text-slate-700">Remarks</label>
+        <FormField label="Remarks" htmlFor="remarks">
           <textarea
+            id="remarks"
             {...register("remarks")}
             rows={2}
             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
           />
-        </div>
+        </FormField>
 
         {/* Save as favorite */}
         <div className="flex items-center gap-2">
-          <input type="checkbox" {...register("saveAsFavorite")} />
-          <label className="text-xs text-slate-700">Save as favorite location</label>
+          <input id="saveAsFavorite" type="checkbox" {...register("saveAsFavorite")} />
+          <label htmlFor="saveAsFavorite" className="text-xs text-slate-700">
+            Save as favorite location
+          </label>
         </div>
 
         {/* Buttons */}
