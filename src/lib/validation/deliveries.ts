@@ -17,7 +17,7 @@ export const deliveryPointSchema = z.object({
     .string()
     .regex(/^\d{6}$/, "Postal code must be 6 digits"),
   remarks: z.string().optional(),
-  saveAsFavorite: z.boolean().default(true),
+  saveAsFavorite: z.boolean().optional(),
 });
 
 export const deliveriesSchema = z.object({

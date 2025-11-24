@@ -17,7 +17,7 @@ export default function LandingPage() {
         </p>
 
         <Link
-          href="/booking"
+          href="/booking/steps/delivery-type"
           className="mt-8 inline-flex items-center rounded-xl bg-sky-600 px-6 py-3 text-white text-lg font-semibold hover:bg-sky-700"
         >
           Book a Delivery  
