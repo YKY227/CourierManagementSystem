@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useDriverJobs } from "../../../lib/driver-jobs-store";
+//import { useDriverJobs } from "../../../lib/driver-jobs-store";
+import { useUnifiedJobs } from "../../../lib/unified-jobs-store";
+
 
 function statusLabel(status: string) {
   switch (status) {
@@ -36,7 +38,7 @@ function statusBadgeClass(status: string) {
 }
 
 export default function DriverJobsPage() {
-  const { jobs, pendingActions, loaded } = useDriverJobs();
+  const { driverJobs: jobs, pendingActions, loaded } = useUnifiedJobs();
   const todayLabel = "Today"; // later: format new Date()
 
   if (!loaded) {

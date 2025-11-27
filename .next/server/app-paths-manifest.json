@@ -1,23 +1,8 @@
 {
-  "/_not-found/page": "app/_not-found/page.js",
-  "/admin/dashboard/page": "app/admin/dashboard/page.js",
-  "/admin/drivers/page": "app/admin/drivers/page.js",
   "/admin/jobs/page": "app/admin/jobs/page.js",
-  "/admin/settings/page": "app/admin/settings/page.js",
+  "/admin/dashboard/page": "app/admin/dashboard/page.js",
+  "/admin/assignment/page": "app/admin/assignment/page.js",
+  "/admin/assignment-policy/page": "app/admin/assignment-policy/page.js",
   "/admin/users/page": "app/admin/users/page.js",
-  "/driver/job/[id]/page": "app/driver/job/[id]/page.js",
-  "/driver/history/page": "app/driver/history/page.js",
-  "/driver/jobs/page": "app/driver/jobs/page.js",
-  "/driver/settings/page": "app/driver/settings/page.js",
-  "/(public-pages)/page": "app/(public-pages)/page.js",
-  "/(public-pages)/tracking/[jobId]/page": "app/(public-pages)/tracking/[jobId]/page.js",
-  "/(public-pages)/booking/page": "app/(public-pages)/booking/page.js",
-  "/(public-pages)/booking/steps/confirmation/page": "app/(public-pages)/booking/steps/confirmation/page.js",
-  "/(public-pages)/booking/steps/delivery-type/page": "app/(public-pages)/booking/steps/delivery-type/page.js",
-  "/(public-pages)/booking/steps/pickup/page": "app/(public-pages)/booking/steps/pickup/page.js",
-  "/(public-pages)/booking/steps/items/page": "app/(public-pages)/booking/steps/items/page.js",
-  "/(public-pages)/booking/steps/deliveries/page": "app/(public-pages)/booking/steps/deliveries/page.js",
-  "/(public-pages)/booking/steps/route-type/page": "app/(public-pages)/booking/steps/route-type/page.js",
-  "/(public-pages)/booking/steps/schedule/page": "app/(public-pages)/booking/steps/schedule/page.js",
-  "/(public-pages)/booking/steps/summary/page": "app/(public-pages)/booking/steps/summary/page.js"
+  "/driver/history/page": "app/driver/history/page.js"
 }

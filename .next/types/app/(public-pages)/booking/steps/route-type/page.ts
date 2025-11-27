@@ -1,4 +1,4 @@
-// File: /workspaces/CourierManagementSystem/src/app/(public-pages)/booking/steps/route-type/page.tsx
+// File: C:\Users\kwang\Downloads\CMS\CourierManagementSystem\src\app\(public-pages)\booking\steps\route-type\page.tsx
 import * as entry from '../../../../../../../src/app/(public-pages)/booking/steps/route-type/page.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 

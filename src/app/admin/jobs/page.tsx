@@ -2,6 +2,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useUnifiedJobs } from "@/lib/unified-jobs-store";
 
 import type {
   JobSummary,
@@ -13,7 +14,6 @@ import type {
   AssignmentConfig,
   HardConstraintKey,  
 } from "@/lib/types";
-import { mockJobs } from "@/lib/mock/jobs";
 import { mockDrivers } from "@/lib/mock/drivers";
 import { scoreDriversForJob, pickBestDriver } from "@/lib/assignment";
 import { defaultAssignmentConfig } from "@/lib/types";
@@ -194,13 +194,17 @@ type AutoAssignSummary = {
 // Main page
 // ─────────────────────────────────────────────
 export default function AdminJobsPage() {
-  const [jobs, setJobs] = useState<JobSummary[]>(() => mockJobs);
+  const {
+  jobSummaries: jobs,
+  setJobAssignment,
+} = useUnifiedJobs();
   const [assignModal, setAssignModal] = useState<AssignModalState>({
     open: false,
     job: null,
   });
   const [selectedDriverId, setSelectedDriverId] = useState<string>("");
 
+  
   // Assignment config (from types default). In future, this will be fed by the
   // /admin/assignment-policy/page.tsx with localStorage.
   const [assignmentConfig] = useState<AssignmentConfig>(
@@ -318,103 +322,92 @@ const closeDebugDrawer = () => {
 
 
   const handleConfirmAssign = () => {
-    if (!assignModal.job || !selectedDriverId) {
-      alert("Please select a driver.");
-      return;
-    }
+  if (!assignModal.job || !selectedDriverId) {
+    alert("Please select a driver.");
+    return;
+  }
 
-    const driver = activeDrivers.find((d) => d.id === selectedDriverId);
-    if (!driver) {
-      alert("Selected driver not found.");
-      return;
-    }
+  const driver = activeDrivers.find((d) => d.id === selectedDriverId);
+  if (!driver) {
+    alert("Selected driver not found.");
+    return;
+  }
 
-    setJobs((prev) =>
-      prev.map((job) =>
-        job.id === assignModal.job!.id
-          ? {
-              ...job,
-              driverId: driver.id,
-              status: "assigned" as JobStatus,
-              assignmentMode: "manual" as AssignmentMode,
-            }
-          : job
-      )
-    );
+  // 🔹 Write into unified store
+  setJobAssignment({
+    jobId: assignModal.job.id,
+    driverId: driver.id,
+    status: "assigned",
+    mode: "manual",
+  });
 
-    closeAssignModal();
-  };
+  closeAssignModal();
+};
+
 
   /**
    * Run auto-assign logic for ALL pending jobs (prototype only).
    * Uses scoreDriversForJob + pickBestDriver and updates jobs in state.
    */
   const handleAutoAssignPending = () => {
-    setJobs((prev) => {
-      const pending = prev.filter((j) => j.status === "pending-assignment");
-      if (pending.length === 0) {
-        setLastAutoAssignSummary({
-          total: 0,
-          assigned: 0,
-          failed: 0,
-        });
-        return prev;
-      }
+  const pending = jobs.filter((j) => j.status === "pending-assignment");
 
-      // Build a mutable copy of today's counts so we can update as we assign
-      const tempCounts: Record<string, number> = {};
-      for (const d of activeDrivers) {
-        tempCounts[d.id] = 0;
-      }
-      for (const job of prev) {
-        if (!job.driverId) continue;
-        if (job.pickupDate !== today) continue;
-        tempCounts[job.driverId] = (tempCounts[job.driverId] || 0) + 1;
-      }
-
-      let assigned = 0;
-      let failed = 0;
-
-      const updated = prev.map((job) => {
-        if (job.status !== "pending-assignment") {
-          return job;
-        }
-
-        const scores = scoreDriversForJob(
-          job,
-          activeDrivers,
-          assignmentConfig,
-          {
-            driverJobCounts: tempCounts,
-          }
-        );
-
-        const best = pickBestDriver(scores);
-
-        if (best) {
-          tempCounts[best.driverId] = (tempCounts[best.driverId] || 0) + 1;
-          assigned++;
-          return {
-            ...job,
-            driverId: best.driverId,
-            status: "assigned" as JobStatus,
-            assignmentMode: "auto" as AssignmentMode,
-          };
-        } else {
-          failed++;
-          return job;
-        }
-      });
-
-      setLastAutoAssignSummary({
-        total: pending.length,
-        assigned,
-        failed,
-      });
-
-      return updated;
+  if (pending.length === 0) {
+    setLastAutoAssignSummary({
+      total: 0,
+      assigned: 0,
+      failed: 0,
     });
-  };
+    return;
+  }
+
+  // Build a mutable copy of today's counts so we can update as we assign
+  const tempCounts: Record<string, number> = {};
+  for (const d of activeDrivers) {
+    tempCounts[d.id] = 0;
+  }
+  for (const job of jobs) {
+    if (!job.driverId) continue;
+    if (job.pickupDate !== today) continue;
+    tempCounts[job.driverId] = (tempCounts[job.driverId] || 0) + 1;
+  }
+
+  let assigned = 0;
+  let failed = 0;
+
+  for (const job of pending) {
+    const scores = scoreDriversForJob(
+      job,
+      activeDrivers,
+      assignmentConfig,
+      { driverJobCounts: tempCounts }
+    );
+
+    const best = pickBestDriver(scores);
+
+    if (best) {
+      tempCounts[best.driverId] = (tempCounts[best.driverId] || 0) + 1;
+      assigned++;
+
+      // 🔹 Persist into unified store
+      setJobAssignment({
+        jobId: job.id,
+        driverId: best.driverId,
+        status: "assigned",
+        mode: "auto",
+      });
+    } else {
+      failed++;
+    }
+  }
+
+  setLastAutoAssignSummary({
+    total: pending.length,
+    assigned,
+    failed,
+  });
+};
+
 
   // ─────────────────────────────────────────────
   // Render

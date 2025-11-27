@@ -1,4 +1,4 @@
-// File: /workspaces/CourierManagementSystem/src/app/driver/settings/page.tsx
+// File: C:\Users\kwang\Downloads\CMS\CourierManagementSystem\src\app\driver\settings\page.tsx
 import * as entry from '../../../../../src/app/driver/settings/page.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 

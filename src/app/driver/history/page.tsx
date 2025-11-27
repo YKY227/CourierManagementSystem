@@ -1,10 +1,18 @@
 "use client";
 
 import { useMemo } from "react";
-import { useDriverJobs } from "../../../lib/driver-jobs-store";
+//import { useDriverJobs } from "../../../lib/driver-jobs-store";
+import { useUnifiedJobs } from "../../../lib/unified-jobs-store";
 
 export default function DriverHistoryPage() {
-  const { jobs, loaded } = useDriverJobs();
+  const {
+  driverJobs: jobs,
+  pendingActions,
+  loaded,
+  markDriverJobStatus,
+  markDriverStopCompleted,
+} = useUnifiedJobs();
+
 
   const { completed, active } = useMemo(() => {
     const completedJobs = jobs.filter((j) => j.status === "completed");

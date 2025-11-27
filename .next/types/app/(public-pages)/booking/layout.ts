@@ -1,4 +1,4 @@
-// File: /workspaces/CourierManagementSystem/src/app/(public-pages)/booking/layout.tsx
+// File: C:\Users\kwang\Downloads\CMS\CourierManagementSystem\src\app\(public-pages)\booking\layout.tsx
 import * as entry from '../../../../../src/app/(public-pages)/booking/layout.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 

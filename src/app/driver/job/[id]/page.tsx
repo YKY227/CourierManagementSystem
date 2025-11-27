@@ -2,7 +2,8 @@
 
 import { useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { useDriverJobs } from "../../../../lib/driver-jobs-store";
+//import { useDriverJobs } from "../../../../lib/driver-jobs-store";
+import { useUnifiedJobs } from "../../../../lib/unified-jobs-store";
 import type { DriverJobStop } from "../../../../lib/mock/driver-jobs";
 
 type JobDetailPageProps = {
@@ -41,13 +42,22 @@ export default function DriverJobDetailPage({ params }: JobDetailPageProps) {
   const router = useRouter();
   const { id } = params;
 
+  // const {
+  //   jobs,
+  //   pendingActions,
+  //   loaded,
+  //   markJobStatus,
+  //   markStopCompleted,
+  // } = useDriverJobs();
+
+
   const {
-    jobs,
-    pendingActions,
-    loaded,
-    markJobStatus,
-    markStopCompleted,
-  } = useDriverJobs();
+  driverJobs: jobs,
+  pendingActions,
+  loaded,
+  markDriverJobStatus:markJobStatus ,        // rename locally if you like
+  markDriverStopCompleted: markStopCompleted,
+} = useUnifiedJobs();
 
   const job = useMemo(
     () => jobs.find((j) => j.id === id),
