@@ -1,10 +1,12 @@
+//src/app/driver/job/[id]/page.tsx
 "use client";
 
 import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 //import { useDriverJobs } from "../../../../lib/driver-jobs-store";
 import { useUnifiedJobs } from "../../../../lib/unified-jobs-store";
-import type { DriverJobStop } from "../../../../lib/mock/driver-jobs";
+//import type { DriverJobStop } from "../../../../lib/mock/driver-jobs";
+import type { DriverJobStop } from "@/lib/types";
 
 type JobDetailPageProps = {
   params: { id: string };

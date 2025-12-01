@@ -6,7 +6,10 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 
-import { useDriverIdentity } from "@/lib/use-driver-identity";
+import {
+  useDriverIdentity,
+  DriverIdentityProvider,
+} from "@/lib/use-driver-identity";
 import { REGION_LABELS } from "@/lib/mock/drivers";
 
 const NAV_ITEMS = [
@@ -15,7 +18,16 @@ const NAV_ITEMS = [
   { href: "/driver/settings", label: "Settings" },
 ];
 
+// Outer layout just provides context
 export default function DriverLayout({ children }: { children: ReactNode }) {
+  return (
+    <DriverIdentityProvider>
+      <DriverLayoutInner>{children}</DriverLayoutInner>
+    </DriverIdentityProvider>
+  );
+}
+
+function DriverLayoutInner({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { driver, loaded, logoutDriver } = useDriverIdentity();
@@ -66,6 +78,11 @@ export default function DriverLayout({ children }: { children: ReactNode }) {
     );
   }
 
+  // ✅ Safe region label (handles optional primaryRegion)
+  const regionLabel = driver.primaryRegion
+    ? REGION_LABELS[driver.primaryRegion]
+    : "Region not set";
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
       <main className="mx-auto flex min-h-screen max-w-md flex-col">
@@ -78,14 +95,14 @@ export default function DriverLayout({ children }: { children: ReactNode }) {
               <span className="font-medium text-slate-100">
                 {driver.name}
               </span>{" "}
-              · {REGION_LABELS[driver.primaryRegion]}
+              · {regionLabel}
             </p>
           </div>
           <button
             type="button"
             onClick={() => {
               logoutDriver();
-              router.push("/driver/login");
+              router.replace("/driver/login");
             }}
             className="rounded-lg border border-slate-700 px-2 py-1 text-[10px] text-slate-200 hover:border-sky-500 hover:text-sky-100"
           >

@@ -6,7 +6,8 @@ import { useMemo } from "react";
 
 import { useUnifiedJobs } from "@/lib/unified-jobs-store";
 import { useDriverIdentity } from "@/lib/use-driver-identity";
-import type { DriverJob } from "@/lib/mock/driver-jobs";
+import type { DriverJob } from "@/lib/types";
+
 
 function statusLabel(status: string) {
   switch (status) {
@@ -66,6 +67,10 @@ export default function DriverJobsPage() {
       (j) => j.pickupDate > todayStr && j.status !== "completed"
     );
 
+    console.log("[DriverJobsPage] visibleJobs:", visibleJobs);
+    console.log("[DriverJobsPage] todaysJobs:", todays);
+    console.log("[DriverJobsPage] upcomingJobs:", upcoming);
+
     return { todaysJobs: todays, upcomingJobs: upcoming };
   }, [driverJobs, driver]);
 
@@ -119,7 +124,7 @@ export default function DriverJobsPage() {
             {todaysJobs.map((job) => (
               <Link
                 key={job.id}
-                href={`/driver/jobs/${job.id}`}
+                href={`/driver/job/${job.id}`}
                 className="block rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-xs hover:border-sky-500 hover:bg-slate-900"
               >
                 <div className="flex items-center justify-between gap-2">
@@ -161,7 +166,7 @@ export default function DriverJobsPage() {
             {upcomingJobs.map((job) => (
               <Link
                 key={job.id}
-                href={`/driver/jobs/${job.id}`}
+                href={`/driver/job/${job.id}`}
                 className="block rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-xs hover:border-sky-500 hover:bg-slate-900"
               >
                 <div className="flex items-center justify-between gap-2">

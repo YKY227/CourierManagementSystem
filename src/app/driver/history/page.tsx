@@ -6,7 +6,7 @@ import Link from "next/link";
 
 import { useUnifiedJobs } from "@/lib/unified-jobs-store";
 import { useDriverIdentity } from "@/lib/use-driver-identity";
-import type { DriverJob } from "@/lib/mock/driver-jobs";
+import type { DriverJob } from "@/lib/types";
 
 export default function DriverHistoryPage() {
   const { driverJobs, loaded } = useUnifiedJobs();
@@ -79,7 +79,7 @@ export default function DriverHistoryPage() {
             {active.map((job) => (
               <Link
                 key={job.id}
-                href={`/driver/jobs/${job.id}`}
+                href={`/driver/job/${job.id}`}
                 className="block rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-xs hover:border-sky-500 hover:bg-slate-900"
               >
                 <div className="flex items-center justify-between gap-2">

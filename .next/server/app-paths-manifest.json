@@ -1,7 +1,7 @@
 {
   "/(public-pages)/page": "app/(public-pages)/page.js",
-  "/driver/login/page": "app/driver/login/page.js",
   "/driver/jobs/page": "app/driver/jobs/page.js",
-  "/driver/settings/page": "app/driver/settings/page.js",
+  "/driver/login/page": "app/driver/login/page.js",
+  "/driver/job/[id]/page": "app/driver/job/[id]/page.js",
   "/driver/history/page": "app/driver/history/page.js"
 }

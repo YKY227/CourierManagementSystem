@@ -1,3 +1,4 @@
+// src/lib/unified-jobs-store.ts
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
@@ -8,54 +9,27 @@ import type {
   AssignmentMode,
   AssignmentConfig,
   RegionCode,
+  Driver,
+  DriverJob,          // 👈 add this
+  DriverJobStatus,          
 } from "@/lib/types";
 
 import { defaultAssignmentConfig } from "@/lib/types";
 import { mockJobs } from "@/lib/mock/jobs";
 import { mockDrivers } from "@/lib/mock/drivers";
 
-import {
-  mockDriverJobs,
-  type DriverJob,
-  type DriverJobStatus,
-} from "@/lib/mock/driver-jobs";
+
 
 import {
   scoreDriversForJob,
   pickBestDriver,
 } from "@/lib/assignment";
 
-// ─────────────────────────────────────────────
-// DRIVER MODEL (Enhanced)
-// ─────────────────────────────────────────────
-export interface Driver {
-  id: string;
-  name: string;
-  email: string;
-  phone: string;
-
-  vehicleType: string;
-  vehiclePlate: string;
-
-  primaryRegion: RegionCode;
-  secondaryRegions?: RegionCode[];
-
-  maxJobsPerDay: number;
-  maxJobsPerSlot: number;
-  workStartHour: number;
-  workEndHour: number;
-
-  isActive: boolean;
-
-  // Enhanced fields
-  currentStatus: "online" | "offline" | "break" | "unavailable";
-  lastSeenAt: string;
-  location: { lat: number; lng: number } | null;
-  notes?: string;
-
-  // Computed dynamically
-  assignedJobCountToday?: number;
-}
+// If you want to move auto-assign logic in here later, you can
+// re-enable these imports and add the function.
+// import type { AssignmentConfig } from "@/lib/types";
+// import { defaultAssignmentConfig } from "@/lib/types";
+// import { scoreDriversForJob, pickBestDriver } from "@/lib/assignment";
 
 // ─────────────────────────────────────────────
 // OFFLINE DRIVER ACTIONS
@@ -116,7 +90,7 @@ function mapJobStatusToDriverStatus(status: JobStatus): DriverJobStatus {
 }
 
 function projectSummaryToDriverJob(summary: JobSummary): DriverJob {
-  const areaLabelMap: any = {
+  const areaLabelMap: Record<string, string> = {
     central: "Central / CBD",
     east: "East / Tampines",
     west: "West / Jurong",
@@ -136,6 +110,11 @@ function projectSummaryToDriverJob(summary: JobSummary): DriverJob {
     totalBillableWeightKg: summary.totalBillableWeightKg,
     originLabel: summary.customerName,
     areaLabel: areaLabelMap[summary.pickupRegion] ?? summary.pickupRegion,
+
+    // ✅ NEW: attach driverId for filtering in /driver/jobs
+    driverId: summary.driverId ?? null,
+    assignedDriverId: summary.driverId ?? null,
+
     stops: [
       {
         id: `${summary.id}-s1`,
@@ -165,7 +144,9 @@ function bootstrapJobsFromSummaries(summaries: JobSummary[]): Job[] {
     pickup: {} as any,
     deliveries: [],
     items: [],
-    schedule: {},
+    // NOTE: our real ScheduleInfo comes from booking-store later.
+    // For now we just satisfy the type.
+    schedule: {} as any,
     assignedDriver: s.driverId
       ? {
           driverId: s.driverId,
@@ -222,12 +203,11 @@ export interface UnifiedJobsState {
   setDrivers: (drivers: Driver[]) => void;
   updateDriver: (id: string, updates: Partial<Driver>) => void;
   toggleDriverActive: (id: string) => void;
-  updateDriverStatus: (id: string, status: Driver["currentStatus"]) => void;
+  updateDriverStatus: (id: string, status: NonNullable<Driver["currentStatus"]>) => void;
   updateDriverLocation: (id: string, loc: { lat: number; lng: number }) => void;
 
   recomputeDriverAssignmentCounts: () => void;
 
-  autoAssignPending: (configOverride?: AssignmentConfig) => void;
   setJobAssignment: (opts: {
     jobId: string;
     driverId: string | null;
@@ -269,45 +249,57 @@ export function useUnifiedJobs(): UnifiedJobsState {
         setDriverJobs(parsed.driverJobs ?? []);
         setPendingActions(parsed.pendingActions ?? []);
 
-        // DRIVER LOAD
         setDrivers(
           (parsed.drivers ?? []).map((d) => ({
             ...d,
-            assignedJobCountToday: 0,
+            assignedJobCountToday: d.assignedJobCountToday ?? 0,
           }))
         );
 
-        // Rebuild summaries
         const summaries = (parsed.jobs ?? []).map((j) =>
           projectJobToSummary(j, mockJobs.find((m) => m.id === j.id))
         );
         setJobSummaries(summaries);
       } else {
-        // First load
-        const initialSummaries = mockJobs;
-        const initialJobs = bootstrapJobsFromSummaries(initialSummaries);
+  // First load
+  const today = new Date().toISOString().slice(0, 10);
 
-        const driverJobsSeed = initialSummaries.map((s) => {
-          const found = mockDriverJobs.find((dj) => dj.id === s.id);
-          return found ?? projectSummaryToDriverJob(s);
-        });
+  // Start from your existing mockJobs but force a few to be "today"
+  const initialSummaries: JobSummary[] = mockJobs.map((job, idx) => ({
+    ...job,
+    // For demo: first 3 jobs are always "today"
+    pickupDate: idx < 3 ? today : job.pickupDate,
+  }));
 
-        // Use mockDrivers → then enrich with enhanced fields
-        const enhancedDrivers: Driver[] = mockDrivers.map((d) => ({
-          ...d,
-          currentStatus: "offline",
-          lastSeenAt: new Date().toISOString(),
-          location: null,
-          notes: "",
-          assignedJobCountToday: 0,
-        }));
+  const initialJobs = bootstrapJobsFromSummaries(initialSummaries);
 
-        setJobs(initialJobs);
-        setDriverJobs(driverJobsSeed);
-        setJobSummaries(initialSummaries);
-        setPendingActions([]);
-        setDrivers(enhancedDrivers);
-      }
+  // 🔴 OLD: this tried to override from mockDriverJobs
+  // const driverJobsSeed = initialSummaries.map((s) => {
+  //   const found = mockDriverJobs.find((dj) => dj.id === s.id);
+  //   return found ?? projectSummaryToDriverJob(s);
+  // });
+
+  // ✅ NEW: always derive driverJobs from JobSummary
+  const driverJobsSeed: DriverJob[] = initialSummaries.map((s) =>
+    projectSummaryToDriverJob(s)
+  );
+
+  const enhancedDrivers: Driver[] = mockDrivers.map((d) => ({
+    ...d,
+    currentStatus: "offline",
+    lastSeenAt: new Date().toISOString(),
+    location: null,
+    notes: "",
+    assignedJobCountToday: 0,
+  }));
+
+  setJobs(initialJobs);
+  setDriverJobs(driverJobsSeed);
+  setJobSummaries(initialSummaries);
+  setPendingActions([]);
+  setDrivers(enhancedDrivers);
+}
+
     } catch (e) {
       console.error("Unified store load failed", e);
     }
@@ -349,7 +341,7 @@ export function useUnifiedJobs(): UnifiedJobsState {
   }, []);
 
   const updateDriverStatus = useCallback(
-    (id: string, status: Driver["currentStatus"]) => {
+    (id: string, status: NonNullable<Driver["currentStatus"]>) => {
       setDrivers((prev) =>
         prev.map((d) =>
           d.id === id
@@ -416,7 +408,6 @@ export function useUnifiedJobs(): UnifiedJobsState {
     }) => {
       const { jobId, driverId, status, mode } = opts;
 
-      // Update canonical Job
       setJobs((prev) =>
         prev.map((job) =>
           job.id === jobId
@@ -441,7 +432,6 @@ export function useUnifiedJobs(): UnifiedJobsState {
         )
       );
 
-      // Update admin summary
       setJobSummaries((prev) =>
         prev.map((s) =>
           s.id === jobId
@@ -450,14 +440,12 @@ export function useUnifiedJobs(): UnifiedJobsState {
         )
       );
 
-      // Update DriverJob status
       setDriverJobs((prev) =>
         prev.map((dj) =>
           dj.id === jobId ? { ...dj, status: mapJobStatusToDriverStatus(status) } : dj
         )
       );
 
-      // Update assignment count
       setTimeout(() => {
         recomputeDriverAssignmentCounts();
       }, 50);
@@ -470,14 +458,12 @@ export function useUnifiedJobs(): UnifiedJobsState {
   // ─────────────────────────────────────────────
   const markDriverJobStatus = useCallback(
     (jobId: string, status: DriverJobStatus) => {
-      // Update driverJobs
       setDriverJobs((prev) =>
         prev.map((job) =>
           job.id === jobId ? { ...job, status } : job
         )
       );
 
-      // Reflect in Jobs + Summaries
       const mappedStatus = mapDriverStatusToJobStatus(status);
 
       setJobs((prev) =>
@@ -494,7 +480,6 @@ export function useUnifiedJobs(): UnifiedJobsState {
         )
       );
 
-      // Offline queue
       setPendingActions((prev) => [
         ...prev,
         {

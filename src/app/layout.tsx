@@ -1,6 +1,7 @@
 // src/app/layout.tsx
 import "./globals.css";
 import type { Metadata } from "next";
+import { DriverIdentityProvider } from "@/lib/use-driver-identity";
 
 export const metadata: Metadata = {
   title: "Courier Management System",
@@ -14,7 +15,11 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <DriverIdentityProvider>
+          {children}
+        </DriverIdentityProvider>
+        </body>
     </html>
   );
 }

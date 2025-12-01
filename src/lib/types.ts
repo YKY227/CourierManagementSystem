@@ -95,6 +95,9 @@ export interface Driver {
 
   vehicleType: VehicleType;
 
+  // 🚗 NEW – plate number (optional, can be required if you prefer)
+  vehiclePlate?: string;
+
   // Whether driver is active & assignable
   isActive: boolean;
 
@@ -104,28 +107,19 @@ export interface Driver {
   workDayStartHour: number;   // 0–23, e.g. 8
   workDayEndHour: number;     // 0–23, e.g. 18
 
-  // ─────────────────────────────────────────────
-  // NEW: Live status / telemetry fields
-  // ─────────────────────────────────────────────
-  currentStatus: DriverStatus;         // online | offline | break | unavailable
-  lastSeenAt: string;                  // ISO timestamp of last heartbeat / app activity
-
-  // Last known location (optional for now – null if unknown)
-  location: {
-    lat: number;
-    lng: number;
-  } | null;
-
-  // Vehicle details
-  vehiclePlate: string;
-
-  // Counters for dashboard (can be derived from jobs later)
-  assignedJobCountToday?: number;
-
   notes?: string;
 
   // Future: link to auth user record, if different
   authUserId?: string;
+
+  // 🔴 Realtime / dashboard fields (all optional so you can phase them in)
+  currentStatus?: "online" | "offline" | "break" | "unavailable";
+  lastSeenAt?: string; // ISO timestamp
+
+  location?: { lat: number; lng: number } | null;
+
+  // Computed dynamically based on today’s assignments
+  assignedJobCountToday?: number;
 }
 
 /**
@@ -181,6 +175,34 @@ export interface Job {
   updatedAt: string;
 }
 
+// ─────────────────────────────────────────────
+// Driver-facing job model (Driver PWA)
+// ─────────────────────────────────────────────
+
+export type DriverJobStatus =
+  | "booked"
+  | "allocated"
+  | "pickup"
+  | "in-progress"
+  | "completed";
+
+export type DriverStopType = "pickup" | "delivery" | "return";
+
+export interface DriverJobStop {
+  id: string;
+  type: DriverStopType;
+  sequence: number;
+
+  label: string;
+  addressLine1: string;
+  postalCode: string;
+  contactName: string;
+  contactPhone: string;
+
+  remarks?: string;
+  completed?: boolean; // used for offline/local completion in PWA
+}
+
 export interface JobSummary {
   id: string;                 // internal ID
   publicId: string;           // customer-facing job ID
@@ -203,6 +225,40 @@ export interface JobSummary {
 
   createdAt: string;          // ISO datetime
 }
+
+/**
+ * Slimmed-down, driver-friendly view of a job.
+ * This is what the Driver PWA uses for:
+ * - Today’s jobs list
+ * - Job detail view
+ * - Offline status + stop completion
+ */
+export interface DriverJob {
+  id: string;          // matches Job.id / JobSummary.id
+  displayId: string;   // e.g. "STL-250323-1001"
+
+  // Service type visible to driver
+  // (reuse booking ServiceType so it stays consistent)
+  serviceType: ServiceType;
+
+  status: DriverJobStatus;
+
+  pickupWindow: string; // "09:00 – 12:00"
+  pickupDate: string;   // "2025-12-01"
+
+  totalStops: number;
+  totalBillableWeightKg: number;
+
+  originLabel: string;  // e.g. "Tech Hygiene Hub"
+  areaLabel: string;    // e.g. "Central / CBD"
+
+  // For driver filtering in the PWA
+  driverId?: string | null;        // canonical driver id (e.g. "drv-1")
+  assignedDriverId?: string | null; // kept for flexibility / future mapping
+
+  stops: DriverJobStop[];
+}
+
 
 /**
  * Keys for the assignment engine.
