@@ -16,85 +16,20 @@
       "static/css/css-src_app_globals_css.css",
       "static/chunks/app/layout.js"
     ],
-    "/(public-pages)/booking/steps/delivery-type/page": [
+    "/driver/login/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/(public-pages)/booking/steps/delivery-type/page.js"
-    ],
-    "/(public-pages)/booking/layout": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/(public-pages)/booking/layout.js"
-    ],
-    "/(public-pages)/booking/steps/route-type/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/(public-pages)/booking/steps/route-type/page.js"
-    ],
-    "/(public-pages)/booking/steps/pickup/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/(public-pages)/booking/steps/pickup/page.js"
-    ],
-    "/(public-pages)/booking/steps/deliveries/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/(public-pages)/booking/steps/deliveries/page.js"
-    ],
-    "/(public-pages)/booking/steps/items/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/(public-pages)/booking/steps/items/page.js"
-    ],
-    "/(public-pages)/booking/steps/schedule/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/(public-pages)/booking/steps/schedule/page.js"
-    ],
-    "/(public-pages)/booking/steps/summary/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/(public-pages)/booking/steps/summary/page.js"
-    ],
-    "/(public-pages)/booking/steps/confirmation/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/(public-pages)/booking/steps/confirmation/page.js"
-    ],
-    "/(public-pages)/tracking/[jobId]/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/(public-pages)/tracking/[jobId]/page.js"
-    ],
-    "/admin/jobs/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/admin/jobs/page.js"
-    ],
-    "/admin/drivers/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/admin/drivers/page.js"
-    ],
-    "/admin/assignment-policy/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/admin/assignment-policy/page.js"
-    ],
-    "/driver/jobs/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/driver/jobs/page.js"
+      "static/chunks/app/driver/login/page.js"
     ],
     "/driver/layout": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/driver/layout.js"
     ],
-    "/driver/job/[id]/page": [
+    "/driver/jobs/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/driver/job/[id]/page.js"
+      "static/chunks/app/driver/jobs/page.js"
     ],
     "/driver/settings/page": [
       "static/chunks/webpack.js",
@@ -105,21 +40,6 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/driver/history/page.js"
-    ],
-    "/admin/dashboard/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/admin/dashboard/page.js"
-    ],
-    "/admin/assignment/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/admin/assignment/page.js"
-    ],
-    "/admin/users/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/admin/users/page.js"
     ]
   }
 }

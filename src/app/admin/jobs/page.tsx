@@ -207,9 +207,10 @@ export default function AdminJobsPage() {
   
   // Assignment config (from types default). In future, this will be fed by the
   // /admin/assignment-policy/page.tsx with localStorage.
-  const [assignmentConfig] = useState<AssignmentConfig>(
-    () => defaultAssignmentConfig
-  );
+  const [assignmentConfig] = useState<AssignmentConfig>(() =>
+  structuredClone(defaultAssignmentConfig)
+);
+
 
   // Keep a small “last run” summary for auto-assign
   const [lastAutoAssignSummary, setLastAutoAssignSummary] =

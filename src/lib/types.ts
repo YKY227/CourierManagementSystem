@@ -71,6 +71,11 @@ export type RegionCode =
 export type VehicleType = "bike" | "car" | "van" | "lorry" | "other";
 
 /**
+ * Driver availability / presence state for dashboards & PWA.
+ */
+export type DriverStatus = "online" | "offline" | "break" | "unavailable";
+
+/**
  * Core driver record, used by:
  * - Admin Dashboard (Drivers tab)
  * - Assignment engine
@@ -98,6 +103,24 @@ export interface Driver {
   maxJobsPerSlot: number;     // e.g. 5 per time window
   workDayStartHour: number;   // 0–23, e.g. 8
   workDayEndHour: number;     // 0–23, e.g. 18
+
+  // ─────────────────────────────────────────────
+  // NEW: Live status / telemetry fields
+  // ─────────────────────────────────────────────
+  currentStatus: DriverStatus;         // online | offline | break | unavailable
+  lastSeenAt: string;                  // ISO timestamp of last heartbeat / app activity
+
+  // Last known location (optional for now – null if unknown)
+  location: {
+    lat: number;
+    lng: number;
+  } | null;
+
+  // Vehicle details
+  vehiclePlate: string;
+
+  // Counters for dashboard (can be derived from jobs later)
+  assignedJobCountToday?: number;
 
   notes?: string;
 
@@ -157,6 +180,7 @@ export interface Job {
   createdAt: string; // ISO timestamps
   updatedAt: string;
 }
+
 export interface JobSummary {
   id: string;                 // internal ID
   publicId: string;           // customer-facing job ID
@@ -179,6 +203,7 @@ export interface JobSummary {
 
   createdAt: string;          // ISO datetime
 }
+
 /**
  * Keys for the assignment engine.
  * These separate hard constraints vs soft scoring rules.
@@ -241,5 +266,3 @@ export const defaultAssignmentConfig: AssignmentConfig = {
     fairnessScore: { enabled: true, weight: 0.2 },
   },
 };
-
-

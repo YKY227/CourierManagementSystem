@@ -1,8 +1,13 @@
+// src/app/driver/layout.tsx
 "use client";
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect } from "react";
+
+import { useDriverIdentity } from "@/lib/use-driver-identity";
+import { REGION_LABELS } from "@/lib/mock/drivers";
 
 const NAV_ITEMS = [
   { href: "/driver/jobs", label: "Jobs" },
@@ -12,16 +17,80 @@ const NAV_ITEMS = [
 
 export default function DriverLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { driver, loaded, logoutDriver } = useDriverIdentity();
+
+  const isLoginRoute = pathname === "/driver/login";
+
+  // Guard: if not logged in and not on login page, redirect to /driver/login
+  useEffect(() => {
+    if (!loaded) return;
+
+    if (!driver && !isLoginRoute) {
+      router.replace("/driver/login");
+    }
+
+    // Optional: if someone visits /driver root, send them to /driver/jobs
+    if (driver && pathname === "/driver") {
+      router.replace("/driver/jobs");
+    }
+  }, [loaded, driver, isLoginRoute, pathname, router]);
+
+  // While loading identity from localStorage
+  if (!loaded) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950">
+        <p className="text-xs text-slate-400">Loading driver profile…</p>
+      </div>
+    );
+  }
+
+  // On /driver/login we *don't* show the driver shell (header + bottom nav)
+  if (isLoginRoute) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-50">
+        <main className="mx-auto flex min-h-screen max-w-md flex-col">
+          <section className="flex-1 overflow-y-auto">{children}</section>
+        </main>
+      </div>
+    );
+  }
+
+  // All other /driver/* pages – require driver to be present
+  if (!driver) {
+    // Effect above will redirect; this is just a fallback
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950">
+        <p className="text-xs text-slate-400">Redirecting to login…</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
       <main className="mx-auto flex min-h-screen max-w-md flex-col">
         {/* Header */}
-        <header className="border-b border-slate-800 px-4 py-3">
-          <h1 className="text-sm font-semibold">Driver App</h1>
-          <p className="text-[11px] text-slate-400">
-            Optimised for mobile · Works offline · PWA-ready later.
-          </p>
+        <header className="flex items-center justify-between gap-2 border-b border-slate-800 px-4 py-3">
+          <div>
+            <h1 className="text-sm font-semibold">Driver App</h1>
+            <p className="text-[11px] text-slate-400">
+              Signed in as{" "}
+              <span className="font-medium text-slate-100">
+                {driver.name}
+              </span>{" "}
+              · {REGION_LABELS[driver.primaryRegion]}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              logoutDriver();
+              router.push("/driver/login");
+            }}
+            className="rounded-lg border border-slate-700 px-2 py-1 text-[10px] text-slate-200 hover:border-sky-500 hover:text-sky-100"
+          >
+            Logout
+          </button>
         </header>
 
         {/* Content */}
@@ -59,7 +128,7 @@ export default function DriverLayout({ children }: { children: ReactNode }) {
                   )}
                   {item.href === "/driver/settings" && (
                     <span className="text-[10px] text-slate-400">
-                      Profile & app
+                      Profile &amp; app
                     </span>
                   )}
                 </Link>

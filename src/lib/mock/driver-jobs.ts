@@ -19,7 +19,7 @@ export interface DriverJobStop {
   contactName: string;
   contactPhone: string;
   remarks?: string;
-  completed?: boolean; // for offline/local completion
+  completed?: boolean;
 }
 
 export interface DriverJob {
@@ -37,10 +37,17 @@ export interface DriverJob {
   originLabel: string;
   areaLabel: string;
 
+  // NEW — allow driver-specific filtering in driver PWA:
+  driverId?: string | null;
+  assignedDriverId?: string | null;
+
   stops: DriverJobStop[];
 }
 
 export const mockDriverJobs: DriverJob[] = [
+  // ────────────────────────────────────────────
+  // Driver 1 (Alex Tan - drv-1)
+  // ────────────────────────────────────────────
   {
     id: "job-1",
     displayId: "STL-251123-1023",
@@ -52,6 +59,9 @@ export const mockDriverJobs: DriverJob[] = [
     totalBillableWeightKg: 18.4,
     originLabel: "Tech Hygiene Hub",
     areaLabel: "Central / CBD",
+    driverId: "drv-1",
+    assignedDriverId: "drv-1",
+
     stops: [
       {
         id: "s1",
@@ -88,6 +98,10 @@ export const mockDriverJobs: DriverJob[] = [
       },
     ],
   },
+
+  // ────────────────────────────────────────────
+  // Driver 2 (Siti Rahman - drv-2)
+  // ────────────────────────────────────────────
   {
     id: "job-2",
     displayId: "STL-261123-2045",
@@ -98,7 +112,10 @@ export const mockDriverJobs: DriverJob[] = [
     totalStops: 2,
     totalBillableWeightKg: 5.2,
     originLabel: "Cleanroom Logistics",
-    areaLabel: "West / Jurong",
+    areaLabel: "East / Tampines",
+    driverId: "drv-2",
+    assignedDriverId: "drv-2",
+
     stops: [
       {
         id: "s1",
@@ -119,6 +136,38 @@ export const mockDriverJobs: DriverJob[] = [
         postalCode: "118260",
         contactName: "Lab Admin",
         contactPhone: "+65 9000 2000",
+      },
+    ],
+  },
+
+  // ────────────────────────────────────────────
+  // Driver 3 (Kumar Raj - drv-3)
+  // ────────────────────────────────────────────
+  {
+    id: "job-3",
+    displayId: "STL-251123-3131",
+    serviceType: "next-day",
+    status: "booked",
+    pickupWindow: "12:00 – 15:00",
+    pickupDate: "2025-12-25",
+    totalStops: 1,
+    totalBillableWeightKg: 32.0,
+    originLabel: "Warehouse Hub",
+    areaLabel: "West / Jurong",
+    driverId: "drv-3",
+    assignedDriverId: "drv-3",
+
+    stops: [
+      {
+        id: "s1",
+        type: "pickup",
+        sequence: 1,
+        label: "Pickup – Warehouse Hub",
+        addressLine1: "3 International Business Park",
+        postalCode: "609927",
+        contactName: "Warehouse Supervisor",
+        contactPhone: "+65 9000 3000",
+        remarks: "Heavy load, use loading bay.",
       },
     ],
   },

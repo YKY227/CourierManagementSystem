@@ -65,33 +65,42 @@ export default function AdminDriversPage() {
   };
 
   const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
-  ) => {
-    if (!formState) return;
-    const { name, value, type, checked } = e.target;
+  e: React.ChangeEvent<
+    HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+  >
+) => {
+  if (!formState) return;
 
-    setFormState((prev) => {
-      if (!prev) return prev;
+  const target = e.target;
+  const { name, value } = target;
 
-      // Checkbox for isActive
-      if (name === "isActive" && type === "checkbox") {
-        return { ...prev, isActive: checked };
-      }
+  setFormState((prev) => {
+    if (!prev) return prev;
 
-      // Number inputs
-      if (
-        name === "maxJobsPerDay" ||
-        name === "maxJobsPerSlot" ||
-        name === "workDayStartHour" ||
-        name === "workDayEndHour"
-      ) {
-        return { ...prev, [name]: Number(value) || 0 };
-      }
+    // ✅ Checkbox for isActive (only on input)
+    if (
+      name === "isActive" &&
+      target instanceof HTMLInputElement &&
+      target.type === "checkbox"
+    ) {
+      return { ...prev, isActive: target.checked };
+    }
 
-      // Everything else
-      return { ...prev, [name]: value };
-    });
-  };
+    // ✅ Number inputs
+    if (
+      name === "maxJobsPerDay" ||
+      name === "maxJobsPerSlot" ||
+      name === "workDayStartHour" ||
+      name === "workDayEndHour"
+    ) {
+      return { ...prev, [name]: Number(value) || 0 };
+    }
+
+    // ✅ Everything else (text, email, select, textarea)
+    return { ...prev, [name]: value };
+  });
+};
+
 
   const toggleSecondaryRegion = (region: RegionCode) => {
     if (!formState) return;

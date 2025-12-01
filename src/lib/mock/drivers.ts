@@ -33,6 +33,15 @@ export const mockDrivers: Driver[] = [
     maxJobsPerSlot: 6,
     workDayStartHour: 9,
     workDayEndHour: 18,
+    // NEW fields
+    currentStatus: "online",
+    lastSeenAt: "2025-12-01T09:15:00+08:00",
+    location: {
+      lat: 1.285,
+      lng: 103.852,
+    },
+    vehiclePlate: "SGA 1234 X",
+    assignedJobCountToday: 5,
     notes: "Prefers CBD pickups, good with bulky items.",
     authUserId: undefined,
   },
@@ -50,6 +59,15 @@ export const mockDrivers: Driver[] = [
     maxJobsPerSlot: 7,
     workDayStartHour: 8,
     workDayEndHour: 17,
+    // NEW fields
+    currentStatus: "break",
+    lastSeenAt: "2025-12-01T09:05:00+08:00",
+    location: {
+      lat: 1.345,
+      lng: 103.955,
+    },
+    vehiclePlate: "SGB 5678 Y",
+    assignedJobCountToday: 3,
     notes: "Ideal for documents and small parcels.",
     authUserId: undefined,
   },
@@ -67,6 +85,12 @@ export const mockDrivers: Driver[] = [
     maxJobsPerSlot: 4,
     workDayStartHour: 9,
     workDayEndHour: 18,
+    // NEW fields
+    currentStatus: "offline",
+    lastSeenAt: "2025-11-30T18:45:00+08:00",
+    location: null, // no recent location
+    vehiclePlate: "SGC 9101 Z",
+    assignedJobCountToday: 0,
     notes: "On standby – usually assigned to oversized / palletized loads.",
     authUserId: undefined,
   },
