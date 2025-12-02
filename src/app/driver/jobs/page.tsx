@@ -6,7 +6,7 @@ import { useMemo } from "react";
 
 import { useUnifiedJobs } from "@/lib/unified-jobs-store";
 import { useDriverIdentity } from "@/lib/use-driver-identity";
-import type { DriverJob } from "@/lib/types";
+import type { DriverJob, RoutePattern  } from "@/lib/types";
 
 
 function statusLabel(status: string) {
@@ -25,6 +25,22 @@ function statusLabel(status: string) {
       return status;
   }
 }
+
+function routePatternLabel(pattern?: RoutePattern) {
+  switch (pattern) {
+    case "one-to-many":
+      return "1 → many";
+    case "many-to-one":
+      return "Many → 1";
+    case "round-trip":
+      return "Round trip";
+    case "one-to-one":
+      return "1 → 1";
+    default:
+      return "";
+  }
+}
+
 
 export default function DriverJobsPage() {
   const { driverJobs, loaded } = useUnifiedJobs();
@@ -123,35 +139,58 @@ export default function DriverJobsPage() {
           <div className="space-y-3">
             {todaysJobs.map((job) => (
               <Link
-                key={job.id}
-                href={`/driver/job/${job.id}`}
-                className="block rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-xs hover:border-sky-500 hover:bg-slate-900"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <p className="font-mono text-[11px] text-slate-400">
-                      {job.displayId}
-                    </p>
-                    <p className="text-sm font-semibold text-slate-50">
-                      {job.originLabel}
-                    </p>
-                    <p className="text-[11px] text-slate-400">
-                      {job.areaLabel}
-                    </p>
-                  </div>
-                  <div className="text-right text-[11px] text-slate-300">
-                    <p>{job.pickupDate}</p>
-                    <p className="font-medium">{job.pickupWindow}</p>
-                    <p className="mt-1 text-slate-400">
-                      {job.totalStops} stops ·{" "}
-                      {job.totalBillableWeightKg.toFixed(1)} kg
-                    </p>
-                    <p className="mt-0.5 text-[10px] text-sky-300">
-                      {statusLabel(job.status)}
-                    </p>
-                  </div>
-                </div>
-              </Link>
+  key={job.id}
+  href={`/driver/job/${job.id}`}
+  className="block rounded-2xl border border-slate-800 bg-slate-900/80 p-4 text-xs hover:border-sky-500 hover:bg-slate-900 transition"
+>
+  {/* Top row: ID + status pill */}
+  <div className="mb-2 flex items-center justify-between gap-2">
+    <p className="font-mono text-[11px] text-slate-400">
+      {job.displayId}
+    </p>
+    <span className="rounded-full border border-sky-500 bg-sky-900/60 px-2 py-0.5 text-[10px] font-medium text-sky-100">
+      {statusLabel(job.status)}
+    </span>
+    {job.routePattern && (
+      <span className="rounded-full border border-slate-600 bg-slate-800/80 px-2 py-0.5 text-[9px] font-medium text-slate-100">
+        Route: {routePatternLabel(job.routePattern)}
+      </span>
+    )}
+  </div>
+
+  {/* Middle: customer + area */}
+  <div className="mb-3">
+    <p className="text-sm font-semibold text-slate-50">
+      {job.originLabel}
+    </p>
+    <p className="text-[11px] text-slate-400">
+      Area: {job.areaLabel}
+    </p>
+  </div>
+
+  {/* Info row */}
+  <div className="mb-3 flex items-start justify-between gap-4 text-[11px] text-slate-300">
+    <div>
+      <p className="text-slate-400">Pickup</p>
+      <p className="font-medium">
+        {job.pickupDate} · {job.pickupWindow}
+      </p>
+    </div>
+    <div className="text-right">
+      <p className="text-slate-400">Stops / Weight</p>
+      <p className="font-medium">
+        {job.totalStops} stops · {job.totalBillableWeightKg.toFixed(1)} kg
+      </p>
+    </div>
+  </div>
+
+  {/* Bottom row */}
+  <div className="flex items-center justify-between text-[10px] text-slate-400">
+    <span>Tap to view route &amp; stops →</span>
+    <span className="font-medium text-sky-300">View job</span>
+  </div>
+</Link>
+
             ))}
           </div>
         </section>

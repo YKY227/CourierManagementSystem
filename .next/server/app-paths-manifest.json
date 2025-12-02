@@ -1,7 +1,8 @@
 {
-  "/(public-pages)/page": "app/(public-pages)/page.js",
-  "/driver/jobs/page": "app/driver/jobs/page.js",
-  "/driver/login/page": "app/driver/login/page.js",
-  "/driver/job/[id]/page": "app/driver/job/[id]/page.js",
-  "/driver/history/page": "app/driver/history/page.js"
+  "/(public-pages)/tracking/[jobId]/page": "app/(public-pages)/tracking/[jobId]/page.js",
+  "/admin/dashboard/page": "app/admin/dashboard/page.js",
+  "/admin/login/page": "app/admin/login/page.js",
+  "/admin/drivers/page": "app/admin/drivers/page.js",
+  "/admin/jobs/page": "app/admin/jobs/page.js",
+  "/admin/assignment-policy/page": "app/admin/assignment-policy/page.js"
 }

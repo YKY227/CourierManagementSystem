@@ -35,6 +35,15 @@ export type JobStatus =
   | "cancelled"          // Cancelled by customer/admin
   | "returned";          // Returned to sender / depot
 
+
+// Add this new union type
+export type RoutePattern =
+  | "one-to-many"
+  | "many-to-one"
+  | "one-to-one"
+  | "round-trip";
+
+
 /**
  * How the job was assigned.
  */
@@ -251,6 +260,8 @@ export interface DriverJob {
 
   originLabel: string;  // e.g. "Tech Hygiene Hub"
   areaLabel: string;    // e.g. "Central / CBD"
+
+  routePattern?: RoutePattern; //route type, one to many, many to one etc.
 
   // For driver filtering in the PWA
   driverId?: string | null;        // canonical driver id (e.g. "drv-1")

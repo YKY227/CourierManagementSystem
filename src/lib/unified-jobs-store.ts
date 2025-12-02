@@ -11,7 +11,9 @@ import type {
   RegionCode,
   Driver,
   DriverJob,          // 👈 add this
-  DriverJobStatus,          
+  DriverJobStatus,
+  DriverJobStop,
+  RoutePattern,          
 } from "@/lib/types";
 
 import { defaultAssignmentConfig } from "@/lib/types";
@@ -89,6 +91,8 @@ function mapJobStatusToDriverStatus(status: JobStatus): DriverJobStatus {
   }
 }
 
+
+
 function projectSummaryToDriverJob(summary: JobSummary): DriverJob {
   const areaLabelMap: Record<string, string> = {
     central: "Central / CBD",
@@ -99,6 +103,179 @@ function projectSummaryToDriverJob(summary: JobSummary): DriverJob {
     "island-wide": "Island-wide",
   };
 
+  let stops: DriverJobStop[] = [];
+  let routePattern: RoutePattern = "one-to-one"; // safe default
+
+  switch (summary.id) {
+    // ────────────────────────────────────────
+    // job-1: ONE pickup → MANY deliveries
+    // ────────────────────────────────────────
+    case "job-1":
+      routePattern = "one-to-many";
+      stops = [
+        {
+          id: "job-1-s1",
+          type: "pickup",
+          sequence: 1,
+          label: "Pickup – Tech Hygiene Hub",
+          addressLine1: "10 Dover Drive",
+          postalCode: "138683",
+          contactName: "Yong",
+          contactPhone: "+65 9000 0001",
+          remarks: "Laptop cleaning equipment – handle carefully.",
+        },
+        {
+          id: "job-1-s2",
+          type: "delivery",
+          sequence: 2,
+          label: "Delivery – ITE College Central",
+          addressLine1: "2 Ang Mo Kio Drive",
+          postalCode: "567720",
+          contactName: "Operations Counter",
+          contactPhone: "+65 9000 0002",
+          remarks: "Report to security before unloading.",
+        },
+        {
+          id: "job-1-s3",
+          type: "delivery",
+          sequence: 3,
+          label: "Delivery – Client Office B",
+          addressLine1: "1 Fusionopolis Way",
+          postalCode: "138632",
+          contactName: "IT Dept",
+          contactPhone: "+65 9000 0003",
+        },
+        {
+          id: "job-1-s4",
+          type: "delivery",
+          sequence: 4,
+          label: "Delivery – Client Office C",
+          addressLine1: "9 Jurong Town Hall Rd",
+          postalCode: "609431",
+          contactName: "Admin",
+          contactPhone: "+65 9000 0004",
+        },
+      ];
+      break;
+
+    // ────────────────────────────────────────
+    // job-2: MANY pickups → ONE delivery
+    // ────────────────────────────────────────
+    case "job-2":
+      routePattern = "many-to-one";
+      stops = [
+        {
+          id: "job-2-s1",
+          type: "pickup",
+          sequence: 1,
+          label: "Pickup – Supplier A",
+          addressLine1: "50 Jurong Gateway Road",
+          postalCode: "608549",
+          contactName: "Supervisor",
+          contactPhone: "+65 9000 1000",
+        },
+        {
+          id: "job-2-s2",
+          type: "pickup",
+          sequence: 2,
+          label: "Pickup – Supplier B",
+          addressLine1: "1 Pasir Ris Central",
+          postalCode: "519599",
+          contactName: "Store",
+          contactPhone: "+65 9000 2000",
+        },
+        {
+          id: "job-2-s3",
+          type: "pickup",
+          sequence: 3,
+          label: "Pickup – Supplier C",
+          addressLine1: "2 Tampines Central 5",
+          postalCode: "529509",
+          contactName: "Warehouse",
+          contactPhone: "+65 9000 3000",
+        },
+        {
+          id: "job-2-s4",
+          type: "delivery",
+          sequence: 4,
+          label: "Delivery – Central Lab",
+          addressLine1: "5 Science Park Drive",
+          postalCode: "118260",
+          contactName: "Lab Admin",
+          contactPhone: "+65 9000 4000",
+          remarks: "Deliver samples to cold room.",
+        },
+      ];
+      break;
+
+    // ────────────────────────────────────────
+    // job-3: ROUND TRIP / SEQUENCE
+    // ────────────────────────────────────────
+    case "job-3":
+      routePattern = "round-trip";
+      stops = [
+        {
+          id: "job-3-s1",
+          type: "pickup",
+          sequence: 1,
+          label: "Pickup – Warehouse Hub (A)",
+          addressLine1: "3 International Business Park",
+          postalCode: "609927",
+          contactName: "Warehouse Supervisor",
+          contactPhone: "+65 9000 5000",
+          remarks: "Load pallets, secure with straps.",
+        },
+        {
+          id: "job-3-s2",
+          type: "delivery",
+          sequence: 2,
+          label: "Delivery / Collection – Customer B",
+          addressLine1: "21 Bukit Batok Crescent",
+          postalCode: "658065",
+          contactName: "Ops Manager",
+          contactPhone: "+65 9000 6000",
+        },
+        {
+          id: "job-3-s3",
+          type: "delivery",
+          sequence: 3,
+          label: "Delivery / Collection – Customer C",
+          addressLine1: "18 Tuas Avenue 10",
+          postalCode: "639142",
+          contactName: "Loading Bay",
+          contactPhone: "+65 9000 7000",
+        },
+        {
+          id: "job-3-s4",
+          type: "return",
+          sequence: 4,
+          label: "Return – Warehouse Hub (A)",
+          addressLine1: "3 International Business Park",
+          postalCode: "609927",
+          contactName: "Warehouse Supervisor",
+          contactPhone: "+65 9000 5000",
+          remarks: "Return collected items to inbound bay.",
+        },
+      ];
+      break;
+
+    // Default: minimal 1-pickup template (for any future jobs)
+    default:
+      routePattern = "one-to-one";
+      stops = [
+        {
+          id: `${summary.id}-s1`,
+          type: "pickup",
+          sequence: 1,
+          label: `Pickup – ${summary.customerName}`,
+          addressLine1: "TBC from booking",
+          postalCode: "000000",
+          contactName: "TBC",
+          contactPhone: "+65 9999 9999",
+        },
+      ];
+  }
+
   return {
     id: summary.id,
     displayId: summary.publicId,
@@ -106,29 +283,20 @@ function projectSummaryToDriverJob(summary: JobSummary): DriverJob {
     serviceType: "same-day",
     pickupDate: summary.pickupDate,
     pickupWindow: summary.pickupSlot,
-    totalStops: summary.stopsCount,
+    totalStops: stops.length,
     totalBillableWeightKg: summary.totalBillableWeightKg,
     originLabel: summary.customerName,
     areaLabel: areaLabelMap[summary.pickupRegion] ?? summary.pickupRegion,
 
-    // ✅ NEW: attach driverId for filtering in /driver/jobs
+    routePattern,                           // 👈 NEW
     driverId: summary.driverId ?? null,
     assignedDriverId: summary.driverId ?? null,
 
-    stops: [
-      {
-        id: `${summary.id}-s1`,
-        type: "pickup",
-        sequence: 1,
-        label: `Pickup – ${summary.customerName}`,
-        addressLine1: "TBC from booking",
-        postalCode: "000000",
-        contactName: "TBC",
-        contactPhone: "+65 9999 9999",
-      },
-    ],
+    stops,
   };
 }
+
+
 
 function bootstrapJobsFromSummaries(summaries: JobSummary[]): Job[] {
   const now = new Date().toISOString();

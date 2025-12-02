@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 //import { useDriverJobs } from "../../../../lib/driver-jobs-store";
 import { useUnifiedJobs } from "../../../../lib/unified-jobs-store";
 //import type { DriverJobStop } from "../../../../lib/mock/driver-jobs";
-import type { DriverJobStop } from "@/lib/types";
+import type { DriverJobStop, RoutePattern } from "@/lib/types";
 
 type JobDetailPageProps = {
   params: { id: string };
@@ -28,6 +28,21 @@ function statusLabel(status: string) {
       return status;
   }
 }
+function routePatternLabel(pattern?: RoutePattern) {
+  switch (pattern) {
+    case "one-to-many":
+      return "1 → many";
+    case "many-to-one":
+      return "Many → 1";
+    case "round-trip":
+      return "Round trip";
+    case "one-to-one":
+      return "1 → 1";
+    default:
+      return "";
+  }
+}
+
 
 function stopTypeLabel(type: DriverJobStop["type"]) {
   switch (type) {
@@ -112,6 +127,11 @@ export default function DriverJobDetailPage({ params }: JobDetailPageProps) {
             <p className="text-xs font-semibold text-slate-50">
               {statusLabel(job.status)}
             </p>
+             {job.routePattern && (
+    <p className="mt-0.5 text-[10px] text-slate-300">
+      Route type: {routePatternLabel(job.routePattern)}
+    </p>
+  )}
             {hasPendingForJob && (
               <p className="text-[10px] text-amber-300">Pending sync…</p>
             )}
@@ -223,6 +243,13 @@ export default function DriverJobDetailPage({ params }: JobDetailPageProps) {
                         >
                           Call / WhatsApp
                         </button>
+                        <button
+  type="button"
+  className="rounded-md border border-slate-600 px-2 py-1 text-[10px] text-slate-100 hover:border-sky-500"
+>
+   Take a Photo
+</button>
+
                         {hasPendingForStop && (
                           <span className="text-[10px] text-amber-300">
                             Pending sync…

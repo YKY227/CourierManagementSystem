@@ -2,123 +2,105 @@
 import type { JobSummary } from "@/lib/types";
 
 /**
- * NOTE:
- * - `driverId` matches your mockDrivers: drv-1 (Alex), drv-2 (Siti), drv-3 (Kumar)
- * - Dates here are static; your unified-jobs-store already bumps some to "today"
- *   by overriding pickupDate for the first few jobs.
+ * These are ADMIN-side job summaries.
+ * Driver-side jobs & stops are derived in unified-jobs-store.ts
  */
 export const mockJobs: JobSummary[] = [
-  // ─────────────────────────────────────────────
-  // Alex – Central / CBD morning route
-  // ─────────────────────────────────────────────
+  // ────────────────────────────────────────────
+  // Alex (drv-1) – ONE pickup → MANY deliveries
+  // Tech Hygiene Hub → 3 client offices
+  // ────────────────────────────────────────────
   {
     id: "job-1",
-    publicId: "STL-250323-1001",
-    customerName: "GreenTech Pte Ltd",
+    publicId: "STL-251123-1023",
+    customerName: "Tech Hygiene Hub",
     pickupRegion: "central",
-    pickupDate: "2025-12-01",
+    pickupDate: "2025-12-02",
     pickupSlot: "09:00 – 12:00",
     jobType: "scheduled",
-    status: "assigned",
+    status: "out-for-pickup", // JobStatus (will map to DriverJobStatus "pickup")
     assignmentMode: "auto",
-    driverId: "drv-1", // Alex
-    stopsCount: 4,
-    totalBillableWeightKg: 32.5,
-    createdAt: "2025-03-24T10:15:00Z",
+    driverId: "drv-1",        // Alex
+    stopsCount: 4,            // 1 pickup + 3 deliveries
+    totalBillableWeightKg: 18.4,
+    createdAt: "2025-11-24T10:15:00Z",
   },
 
-  // ─────────────────────────────────────────────
-  // Siti – East mid-day SME deliveries
-  // ─────────────────────────────────────────────
+  // ────────────────────────────────────────────
+  // Siti (drv-2) – MANY pickups → ONE delivery
+  // Collect from 3 locations → deliver to central lab
+  // ────────────────────────────────────────────
   {
     id: "job-2",
-    publicId: "STL-250323-1002",
-    customerName: "EduLink Solutions",
+    publicId: "STL-261123-2045",
+    customerName: "Cleanroom Logistics",
     pickupRegion: "east",
-    pickupDate: "2025-03-25",
+    pickupDate: "2025-11-25",
     pickupSlot: "12:00 – 15:00",
     jobType: "scheduled",
-    status: "assigned",
+    status: "assigned",       // JobStatus (DriverJobStatus "allocated")
     assignmentMode: "auto",
-    driverId: "drv-2", // Siti
-    stopsCount: 2,
-    totalBillableWeightKg: 8.2,
-    createdAt: "2025-03-24T11:05:00Z",
+    driverId: "drv-2",        // Siti
+    stopsCount: 4,            // 3 pickups + 1 delivery
+    totalBillableWeightKg: 12.6,
+    createdAt: "2025-11-24T11:05:00Z",
   },
 
-  // ─────────────────────────────────────────────
-  // Kumar – West late-afternoon bulk equipment
-  // ─────────────────────────────────────────────
+  // ────────────────────────────────────────────
+  // Kumar (drv-3) – ROUND TRIP / SEQUENCE
+  // A → B → C → back to A
+  // ────────────────────────────────────────────
   {
     id: "job-3",
-    publicId: "STL-250323-1003",
-    customerName: "Sunrise Clinic",
+    publicId: "STL-271123-3131",
+    customerName: "Warehouse Hub",
     pickupRegion: "west",
-    pickupDate: "2025-03-25",
+    pickupDate: "2025-11-25",
     pickupSlot: "15:00 – 18:00",
     jobType: "scheduled",
-    status: "assigned",
-    assignmentMode: "manual", // maybe manually given to Kumar
-    driverId: "drv-3", // Kumar
-    stopsCount: 3,
-    totalBillableWeightKg: 21.4,
-    createdAt: "2025-03-24T12:30:00Z",
+    status: "booked",         // not started yet
+    assignmentMode: "manual",
+    driverId: "drv-3",        // Kumar
+    stopsCount: 4,            // A → B → C → A
+    totalBillableWeightKg: 32.0,
+    createdAt: "2025-11-24T12:30:00Z",
   },
 
-  // ─────────────────────────────────────────────
-  // Unassigned ad-hoc ASAP job (dispatcher demo)
-  // ─────────────────────────────────────────────
+  // ────────────────────────────────────────────
+  // Older completed job – shows up in history
+  // ────────────────────────────────────────────
   {
     id: "job-4",
-    publicId: "STL-250323-1004",
-    customerName: "Quick Print Services",
-    pickupRegion: "central",
-    pickupDate: "2025-03-25",
-    pickupSlot: "ASAP (within 3h)",
-    jobType: "ad-hoc",
-    status: "pending-assignment",
-    assignmentMode: undefined,
-    driverId: null, // not yet assigned – good for assignment demo
-    stopsCount: 1,
-    totalBillableWeightKg: 1.2,
-    createdAt: "2025-03-25T03:20:00Z",
-  },
-
-  // ─────────────────────────────────────────────
-  // Yesterday – completed job for Siti
-  // ─────────────────────────────────────────────
-  {
-    id: "job-5",
-    publicId: "STL-240323-0999",
+    publicId: "STL-241123-0999",
     customerName: "TechHub Co-working",
-    pickupRegion: "east",
-    pickupDate: "2025-03-24",
+    pickupRegion: "central",
+    pickupDate: "2025-11-24",
     pickupSlot: "09:00 – 12:00",
-    jobType: "scheduled",
-    status: "completed",
-    assignmentMode: "auto",
-    driverId: "drv-2", // Siti
-    stopsCount: 5,
-    totalBillableWeightKg: 45.0,
-    createdAt: "2025-03-23T09:45:00Z",
-  },
-
-  // ─────────────────────────────────────────────
-  // Older completed job for Kumar (history tab)
-  // ─────────────────────────────────────────────
-  {
-    id: "job-6",
-    publicId: "STL-230323-0990",
-    customerName: "Industrial Supplies SG",
-    pickupRegion: "west",
-    pickupDate: "2025-03-23",
-    pickupSlot: "13:00 – 16:00",
     jobType: "scheduled",
     status: "completed",
     assignmentMode: "manual",
-    driverId: "drv-3", // Kumar
+    driverId: "drv-1",
     stopsCount: 3,
-    totalBillableWeightKg: 60.3,
-    createdAt: "2025-03-22T15:10:00Z",
+    totalBillableWeightKg: 10.2,
+    createdAt: "2025-11-23T09:45:00Z",
+  },
+
+  // ────────────────────────────────────────────
+  // Another completed job
+  // ────────────────────────────────────────────
+  {
+    id: "job-5",
+    publicId: "STL-231123-0998",
+    customerName: "EduLink Solutions",
+    pickupRegion: "north-east",
+    pickupDate: "2025-11-23",
+    pickupSlot: "12:00 – 15:00",
+    jobType: "scheduled",
+    status: "completed",
+    assignmentMode: "auto",
+    driverId: "drv-2",
+    stopsCount: 2,
+    totalBillableWeightKg: 7.3,
+    createdAt: "2025-11-22T11:00:00Z",
   },
 ];
