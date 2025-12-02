@@ -1,8 +1,0 @@
-{
-  "/(public-pages)/tracking/[jobId]/page": "app/(public-pages)/tracking/[jobId]/page.js",
-  "/admin/dashboard/page": "app/admin/dashboard/page.js",
-  "/admin/login/page": "app/admin/login/page.js",
-  "/admin/drivers/page": "app/admin/drivers/page.js",
-  "/admin/jobs/page": "app/admin/jobs/page.js",
-  "/admin/assignment-policy/page": "app/admin/assignment-policy/page.js"
-}
