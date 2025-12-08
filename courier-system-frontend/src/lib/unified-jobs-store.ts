@@ -1,4 +1,3 @@
-// src/lib/unified-jobs-store.ts
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
@@ -10,28 +9,29 @@ import type {
   AssignmentConfig,
   RegionCode,
   Driver,
-  DriverJob,          // 👈 add this
+  DriverJob,
   DriverJobStatus,
   DriverJobStop,
-  RoutePattern,          
+  RoutePattern,
 } from "@/lib/types";
 
+import {
+  fetchDriverJobs,
+  updateDriverJobStatusOnBackend,
+  markDriverJobStopOnBackend,
+} from "@/lib/api/driver";
+
+import { uploadProofPhotoOnBackend, type ProofPhotoDto } from "@/lib/api/driver";
 import { defaultAssignmentConfig } from "@/lib/types";
 import { mockJobs } from "@/lib/mock/jobs";
 import { mockDrivers } from "@/lib/mock/drivers";
 
-
-
-import {
-  scoreDriversForJob,
-  pickBestDriver,
-} from "@/lib/assignment";
-
-// If you want to move auto-assign logic in here later, you can
-// re-enable these imports and add the function.
-// import type { AssignmentConfig } from "@/lib/types";
-// import { defaultAssignmentConfig } from "@/lib/types";
-// import { scoreDriversForJob, pickBestDriver } from "@/lib/assignment";
+// 🔹 NEW: config + backend API for admin jobs
+import { USE_BACKEND } from "@/lib/config";
+//import { fetchAdminJobs } from "@/app/api/admin";
+import { fetchAdminJobs, assignJobOnBackend } from "@/lib/api/admin";
+import { fetchAdminDrivers } from "@/lib/api/drivers";
+import { scoreDriversForJob, pickBestDriver } from "@/lib/assignment";
 
 // ─────────────────────────────────────────────
 // OFFLINE DRIVER ACTIONS
@@ -90,8 +90,6 @@ function mapJobStatusToDriverStatus(status: JobStatus): DriverJobStatus {
       return "allocated";
   }
 }
-
-
 
 function projectSummaryToDriverJob(summary: JobSummary): DriverJob {
   const areaLabelMap: Record<string, string> = {
@@ -287,16 +285,12 @@ function projectSummaryToDriverJob(summary: JobSummary): DriverJob {
     totalBillableWeightKg: summary.totalBillableWeightKg,
     originLabel: summary.customerName,
     areaLabel: areaLabelMap[summary.pickupRegion] ?? summary.pickupRegion,
-
-    routePattern,                           // 👈 NEW
+    routePattern,
     driverId: summary.driverId ?? null,
     assignedDriverId: summary.driverId ?? null,
-
     stops,
   };
 }
-
-
 
 function bootstrapJobsFromSummaries(summaries: JobSummary[]): Job[] {
   const now = new Date().toISOString();
@@ -312,8 +306,6 @@ function bootstrapJobsFromSummaries(summaries: JobSummary[]): Job[] {
     pickup: {} as any,
     deliveries: [],
     items: [],
-    // NOTE: our real ScheduleInfo comes from booking-store later.
-    // For now we just satisfy the type.
     schedule: {} as any,
     assignedDriver: s.driverId
       ? {
@@ -371,20 +363,27 @@ export interface UnifiedJobsState {
   setDrivers: (drivers: Driver[]) => void;
   updateDriver: (id: string, updates: Partial<Driver>) => void;
   toggleDriverActive: (id: string) => void;
-  updateDriverStatus: (id: string, status: NonNullable<Driver["currentStatus"]>) => void;
+  updateDriverStatus: (
+    id: string,
+    status: NonNullable<Driver["currentStatus"]>
+  ) => void;
   updateDriverLocation: (id: string, loc: { lat: number; lng: number }) => void;
 
   recomputeDriverAssignmentCounts: () => void;
 
-  setJobAssignment: (opts: {
+    setJobAssignment: (opts: {
     jobId: string;
     driverId: string | null;
     status: JobStatus;
     mode: AssignmentMode;
-  }) => void;
+  }) => Promise<void>;
 
-  markDriverJobStatus: (jobId: string, status: DriverJobStatus) => void;
-  markDriverStopCompleted: (jobId: string, stopId: string) => void;
+
+  markDriverJobStatus: (jobId: string, status: DriverJobStatus) => Promise<void>;
+  markDriverStopCompleted: (jobId: string, stopId: string) => Promise<void>;
+
+  // ⬇ NEW
+  uploadProofForStop: (jobId: string, stopId: string, file: File) => Promise<void>;
 
   clearPendingAction: (id: string) => void;
 }
@@ -402,77 +401,126 @@ export function useUnifiedJobs(): UnifiedJobsState {
   const [loaded, setLoaded] = useState(false);
 
   // ─────────────────────────────────────────────
-  // Load from storage OR from mocks
+  // Load from storage OR from backend / mocks
   // ─────────────────────────────────────────────
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     const raw = localStorage.getItem(STORAGE_KEY);
 
-    try {
-      if (raw) {
-        const parsed = JSON.parse(raw) as PersistedState;
+    const init = async () => {
+      try {
+        console.log("[UnifiedJobs] USE_BACKEND =", USE_BACKEND);
+    console.log(
+      "[UnifiedJobs] BACKEND_BASE =",
+      process.env.NEXT_PUBLIC_BACKEND_BASE_URL,
+    );
+        if (raw) {
+          const parsed = JSON.parse(raw) as PersistedState;
 
-        setJobs(parsed.jobs ?? []);
-        setDriverJobs(parsed.driverJobs ?? []);
-        setPendingActions(parsed.pendingActions ?? []);
+          setJobs(parsed.jobs ?? []);
+          setDriverJobs(parsed.driverJobs ?? []);
+          setPendingActions(parsed.pendingActions ?? []);
 
+          // setDrivers(
+          //   (parsed.drivers ?? []).map((d) => ({
+          //     ...d,
+          //     assignedJobCountToday: d.assignedJobCountToday ?? 0,
+          //   }))
+          // );
+
+          const summaries = (parsed.jobs ?? []).map((j) =>
+            projectJobToSummary(j, mockJobs.find((m) => m.id === j.id))
+          );
+          setJobSummaries(summaries);
+        } else {
+          // First load: fetch from backend (if enabled) or fall back to mocks
+          const today = new Date().toISOString().slice(0, 10);
+
+          let initialSummaries: JobSummary[];
+
+          if (USE_BACKEND) {
+            const apiJobs = await fetchAdminJobs();
+            initialSummaries = apiJobs.map((job, idx) => ({
+              ...job,
+              // if backend doesn't provide pickupDate, or for demo you want a few "today"
+              pickupDate: job.pickupDate || today,
+            }));
+          } else {
+            initialSummaries = mockJobs.map((job, idx) => ({
+              ...job,
+              pickupDate: idx < 3 ? today : job.pickupDate,
+            }));
+          }
+
+          const initialJobs = bootstrapJobsFromSummaries(initialSummaries);
+
+          const driverJobsSeed: DriverJob[] = initialSummaries.map((s) =>
+            projectSummaryToDriverJob(s)
+          );
+
+          // const enhancedDrivers: Driver[] = mockDrivers.map((d) => ({
+          //   ...d,
+          //   currentStatus: "offline",
+          //   lastSeenAt: new Date().toISOString(),
+          //   location: null,
+          //   notes: "",
+          //   assignedJobCountToday: 0,
+          // }));
+
+          setJobs(initialJobs);
+          setDriverJobs(driverJobsSeed);
+          setJobSummaries(initialSummaries);
+          setPendingActions([]);
+          //setDrivers(enhancedDrivers);
+        }
+
+         // 🔹 NEW: load drivers (backend first, then fallback to mocks)
+      if (USE_BACKEND) {
+        try {
+          const apiDrivers = await fetchAdminDrivers();
+          setDrivers(
+            apiDrivers.map((d) => ({
+              ...d,
+              assignedJobCountToday: d.assignedJobCountToday ?? 0,
+            }))
+          );
+        } catch (err) {
+          console.error(
+            "[UnifiedJobs] Failed to load drivers from backend, falling back to mocks",
+            err
+          );
+          setDrivers(
+            mockDrivers.map((d) => ({
+              ...d,
+              currentStatus: "offline",
+              lastSeenAt: new Date().toISOString(),
+              location: null,
+              notes: "",
+              assignedJobCountToday: 0,
+            }))
+          );
+        }
+      } else {
         setDrivers(
-          (parsed.drivers ?? []).map((d) => ({
+          mockDrivers.map((d) => ({
             ...d,
-            assignedJobCountToday: d.assignedJobCountToday ?? 0,
+            currentStatus: "offline",
+            lastSeenAt: new Date().toISOString(),
+            location: null,
+            notes: "",
+            assignedJobCountToday: 0,
           }))
         );
+      }
+      } catch (e) {
+        console.error("Unified store load failed", e);
+      }
 
-        const summaries = (parsed.jobs ?? []).map((j) =>
-          projectJobToSummary(j, mockJobs.find((m) => m.id === j.id))
-        );
-        setJobSummaries(summaries);
-      } else {
-  // First load
-  const today = new Date().toISOString().slice(0, 10);
+      setLoaded(true);
+    };
 
-  // Start from your existing mockJobs but force a few to be "today"
-  const initialSummaries: JobSummary[] = mockJobs.map((job, idx) => ({
-    ...job,
-    // For demo: first 3 jobs are always "today"
-    pickupDate: idx < 3 ? today : job.pickupDate,
-  }));
-
-  const initialJobs = bootstrapJobsFromSummaries(initialSummaries);
-
-  // 🔴 OLD: this tried to override from mockDriverJobs
-  // const driverJobsSeed = initialSummaries.map((s) => {
-  //   const found = mockDriverJobs.find((dj) => dj.id === s.id);
-  //   return found ?? projectSummaryToDriverJob(s);
-  // });
-
-  // ✅ NEW: always derive driverJobs from JobSummary
-  const driverJobsSeed: DriverJob[] = initialSummaries.map((s) =>
-    projectSummaryToDriverJob(s)
-  );
-
-  const enhancedDrivers: Driver[] = mockDrivers.map((d) => ({
-    ...d,
-    currentStatus: "offline",
-    lastSeenAt: new Date().toISOString(),
-    location: null,
-    notes: "",
-    assignedJobCountToday: 0,
-  }));
-
-  setJobs(initialJobs);
-  setDriverJobs(driverJobsSeed);
-  setJobSummaries(initialSummaries);
-  setPendingActions([]);
-  setDrivers(enhancedDrivers);
-}
-
-    } catch (e) {
-      console.error("Unified store load failed", e);
-    }
-
-    setLoaded(true);
+    void init();
   }, []);
 
   // ─────────────────────────────────────────────
@@ -547,7 +595,6 @@ export function useUnifiedJobs(): UnifiedJobsState {
   // ─────────────────────────────────────────────
   const recomputeDriverAssignmentCounts = useCallback(() => {
     const today = new Date().toISOString().slice(0, 10);
-
     const driverCounts: Record<string, number> = {};
 
     jobSummaries.forEach((j) => {
@@ -567,8 +614,11 @@ export function useUnifiedJobs(): UnifiedJobsState {
   // ─────────────────────────────────────────────
   // Admin: Assignment Logic
   // ─────────────────────────────────────────────
+    // ─────────────────────────────────────────────
+  // Admin: Assignment Logic
+  // ─────────────────────────────────────────────
   const setJobAssignment = useCallback(
-    (opts: {
+    async (opts: {
       jobId: string;
       driverId: string | null;
       status: JobStatus;
@@ -576,16 +626,47 @@ export function useUnifiedJobs(): UnifiedJobsState {
     }) => {
       const { jobId, driverId, status, mode } = opts;
 
+      // We’ll allow the backend to be source of truth when enabled.
+      let finalStatus = status;
+      let finalMode = mode;
+      let finalDriverId = driverId;
+
+      // If backend is enabled and we have a driver, call NestJS
+      if (USE_BACKEND && driverId) {
+        try {
+          const updatedJob = await assignJobOnBackend(jobId, {
+            driverId,
+            // our API expects 'auto' | 'manual'
+            mode: mode === "auto" ? "auto" : "manual",
+          });
+
+          // Trust backend for status/mode/driverId
+          finalStatus = updatedJob.status as JobStatus;
+          finalMode = (updatedJob.assignmentMode ?? mode) as AssignmentMode;
+
+          // Depending on how the backend response is shaped: driverId vs currentDriverId
+          finalDriverId =
+            (updatedJob as any).driverId ??
+            (updatedJob as any).currentDriverId ??
+            driverId;
+        } catch (err) {
+          console.error("assignJobOnBackend failed", err);
+          throw err; // let the caller show a toast / error
+        }
+      }
+
+      // Update rich Job objects
       setJobs((prev) =>
         prev.map((job) =>
           job.id === jobId
             ? {
                 ...job,
-                status,
-                assignmentMode: mode,
-                assignedDriver: driverId
+                status: finalStatus,
+                assignmentMode: finalMode,
+                assignedDriver: finalDriverId
                   ? {
-                      driverId,
+                      driverId: finalDriverId,
+                      // TODO: once /admin/drivers is wired, look up real driver info
                       name: "Driver",
                       phone: "",
                       vehicleType: "van" as any,
@@ -600,20 +681,30 @@ export function useUnifiedJobs(): UnifiedJobsState {
         )
       );
 
+      // Update JobSummary list
       setJobSummaries((prev) =>
         prev.map((s) =>
           s.id === jobId
-            ? { ...s, driverId, assignmentMode: mode, status }
+            ? {
+                ...s,
+                driverId: finalDriverId ?? null,
+                assignmentMode: finalMode,
+                status: finalStatus,
+              }
             : s
         )
       );
 
+      // Update DriverJob list (PWA view)
       setDriverJobs((prev) =>
         prev.map((dj) =>
-          dj.id === jobId ? { ...dj, status: mapJobStatusToDriverStatus(status) } : dj
+          dj.id === jobId
+            ? { ...dj, status: mapJobStatusToDriverStatus(finalStatus) }
+            : dj
         )
       );
 
+      // Recompute assignment counts with new summary state
       setTimeout(() => {
         recomputeDriverAssignmentCounts();
       }, 50);
@@ -621,82 +712,169 @@ export function useUnifiedJobs(): UnifiedJobsState {
     [recomputeDriverAssignmentCounts]
   );
 
-  // ─────────────────────────────────────────────
+
+    // ─────────────────────────────────────────────
   // Driver PWA: Status Updates
   // ─────────────────────────────────────────────
   const markDriverJobStatus = useCallback(
-    (jobId: string, status: DriverJobStatus) => {
+    async (jobId: string, status: DriverJobStatus) => {
+      // 1) If backend is enabled, call real API first
+      if (USE_BACKEND) {
+        try {
+          await updateDriverJobStatusOnBackend(jobId, status);
+        } catch (err) {
+          console.error("updateDriverJobStatusOnBackend failed", err);
+          // Rethrow so UI can show toast / error
+          throw err;
+        }
+      }
+
+      // 2) Update local store (this is the old logic)
       setDriverJobs((prev) =>
         prev.map((job) =>
-          job.id === jobId ? { ...job, status } : job
-        )
+          job.id === jobId ? { ...job, status } : job,
+        ),
       );
 
       const mappedStatus = mapDriverStatusToJobStatus(status);
 
       setJobs((prev) =>
         prev.map((job) =>
-          job.id === jobId
-            ? { ...job, status: mappedStatus }
-            : job
-        )
+          job.id === jobId ? { ...job, status: mappedStatus } : job,
+        ),
       );
 
       setJobSummaries((prev) =>
         prev.map((s) =>
-          s.id === jobId ? { ...s, status: mappedStatus } : s
-        )
+          s.id === jobId ? { ...s, status: mappedStatus } : s,
+        ),
       );
 
-      setPendingActions((prev) => [
-        ...prev,
-        {
-          id: generatePendingActionId(),
-          type: "job-status",
-          jobId,
-          newStatus: status,
-          createdAt: new Date().toISOString(),
-        },
-      ]);
+      // 3) Offline queue only if backend is OFF
+      if (!USE_BACKEND) {
+        setPendingActions((prev) => [
+          ...prev,
+          {
+            id: generatePendingActionId(),
+            type: "job-status",
+            jobId,
+            newStatus: status,
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+      }
     },
-    []
+    [],
   );
 
-  // ─────────────────────────────────────────────
+
+    // ─────────────────────────────────────────────
   // Driver PWA: Stops
   // ─────────────────────────────────────────────
   const markDriverStopCompleted = useCallback(
-    (jobId: string, stopId: string) => {
+    async (jobId: string, stopId: string) => {
+      // 1) Call backend if enabled
+      if (USE_BACKEND) {
+        try {
+          await markDriverJobStopOnBackend(jobId, stopId);
+        } catch (err) {
+          console.error("markDriverJobStopOnBackend failed", err);
+          throw err;
+        }
+      }
+
+      // 2) Local state update (existing behaviour)
       setDriverJobs((prev) =>
         prev.map((job) =>
           job.id === jobId
             ? {
                 ...job,
                 stops: job.stops.map((s) =>
-                  s.id === stopId ? { ...s, completed: true } : s
+                  s.id === stopId ? { ...s, completed: true } : s,
                 ),
               }
-            : job
-        )
+            : job,
+        ),
       );
 
-      setPendingActions((prev) => [
-        ...prev,
-        {
-          id: generatePendingActionId(),
-          type: "stop-completed",
-          jobId,
-          stopId,
-          createdAt: new Date().toISOString(),
-        },
-      ]);
+      // 3) Offline queue only when backend is OFF
+      if (!USE_BACKEND) {
+        setPendingActions((prev) => [
+          ...prev,
+          {
+            id: generatePendingActionId(),
+            type: "stop-completed",
+            jobId,
+            stopId,
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+      }
     },
-    []
+    [],
   );
+
 
   const clearPendingAction = useCallback((id: string) => {
     setPendingActions((prev) => prev.filter((a) => a.id !== id));
   }, []);
+
+    // ─────────────────────────────────────────────
+  // Driver PWA: Proof photos
+  // ─────────────────────────────────────────────
+  const uploadProofForStop = useCallback(
+    async (jobId: string, stopId: string, file: File) => {
+      // Helper to update local driverJobs with a new photo
+      const addPhotoLocally = (photo: ProofPhotoDto) => {
+        setDriverJobs((prev) =>
+          prev.map((job) =>
+            job.id !== jobId
+              ? job
+              : {
+                  ...job,
+                  stops: job.stops.map((s) => {
+                    if (s.id !== stopId) return s;
+                    const existing = ((s as any).proofPhotos ??
+                      []) as ProofPhotoDto[];
+
+                    return {
+                      ...s,
+                      proofPhotos: [...existing, photo],
+                    } as any;
+                  }),
+                }
+          )
+        );
+      };
+
+      if (USE_BACKEND) {
+        try {
+          const uploaded = await uploadProofPhotoOnBackend({
+            jobId,
+            stopId,
+            file,
+          });
+          addPhotoLocally(uploaded);
+        } catch (err) {
+          console.error("uploadProofForStop backend error", err);
+          throw err;
+        }
+      } else {
+        // Offline / mock mode: just store a blob URL locally
+        const objectUrl = URL.createObjectURL(file);
+        const localPhoto: ProofPhotoDto = {
+          id: `local-${Date.now()}`,
+          url: objectUrl,
+          takenAt: new Date().toISOString(),
+          stopId,
+          jobId,
+        };
+        addPhotoLocally(localPhoto);
+      }
+    },
+    [setDriverJobs]
+  );
+
 
   // ─────────────────────────────────────────────
   return {
@@ -720,6 +898,10 @@ export function useUnifiedJobs(): UnifiedJobsState {
     markDriverJobStatus,
     markDriverStopCompleted,
 
+    // ⬇ NEW
+    uploadProofForStop,
+
     clearPendingAction,
   };
+
 }

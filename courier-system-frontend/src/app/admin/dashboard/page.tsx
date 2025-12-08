@@ -483,7 +483,7 @@ export default function AdminDashboardPage() {
                       <p className="text-[11px] text-slate-500">
                         {job.stopsCount} stop
                         {job.stopsCount > 1 ? "s" : ""} ·{" "}
-                        {job.totalBillableWeightKg.toFixed(1)} kg ·{" "}
+                        {(Number(job.totalBillableWeightKg) || 0).toFixed(1)} kg ·{" "}
                         {job.pickupSlot}
                       </p>
                       <p className="mt-0.5 text-[11px] text-slate-500">

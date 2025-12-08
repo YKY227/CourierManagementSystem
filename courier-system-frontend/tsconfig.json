@@ -34,7 +34,7 @@
     "courier-system-frontend  /next-env.d.ts",
     "src",
     ".next/types/**/*.ts"
-  ],
+, "../courier-system-backend/src/admin/dto"  ],
   "exclude": [
     "courier-system-frontend  /node_modules"
   ]

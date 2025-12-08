@@ -210,6 +210,8 @@ export interface DriverJobStop {
 
   remarks?: string;
   completed?: boolean; // used for offline/local completion in PWA
+  /** Latest proof photo URL from backend (if any). */
+  proofPhotoUrl?: string | null;
 }
 
 export interface JobSummary {

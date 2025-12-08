@@ -1,8 +1,14 @@
 // src/app/admin/jobs/page.tsx
 "use client";
-
-import { useMemo, useState } from "react";
+import Link from "next/link";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useUnifiedJobs } from "@/lib/unified-jobs-store";
+import { fetchAdminJobs,autoAssignJobOnBackend } from "@/lib/api/admin";
 
 import type {
   JobSummary,
@@ -12,12 +18,20 @@ import type {
   RegionCode,
   Driver,
   AssignmentConfig,
-  HardConstraintKey,  
+  HardConstraintKey,
 } from "@/lib/types";
-import { mockDrivers } from "@/lib/mock/drivers";
+//import { mockDrivers } from "@/lib/mock/drivers";
 import { scoreDriversForJob, pickBestDriver } from "@/lib/assignment";
 import { defaultAssignmentConfig } from "@/lib/types";
 
+// 🔧 feature flag (build-time) – set in frontend .env:
+// NEXT_PUBLIC_USE_BACKEND_JOBS=true
+// const USE_BACKEND =
+//   process.env.NEXT_PUBLIC_USE_BACKEND_JOBS === "true";
+import { USE_BACKEND, API_BASE_URL } from "@/lib/config";
+
+console.log("[AdminJobsPage] USE_BACKEND =", USE_BACKEND);
+console.log("[AdminJobsPage] API_BASE_URL =", API_BASE_URL);
 // ─────────────────────────────────────────────
 // Small helpers
 // ─────────────────────────────────────────────
@@ -168,9 +182,7 @@ function assignmentModeBadge(mode: AssignmentMode | undefined) {
     );
   }
   return (
-    <span
-      className={`${base} bg-sky-50 text-sky-700 ring-1 ring-sky-200`}
-    >
+    <span className={`${base} bg-sky-50 text-sky-700 ring-1 ring-sky-200`}>
       Manual assign
     </span>
   );
@@ -190,88 +202,135 @@ type AutoAssignSummary = {
   failed: number;
 };
 
+type BackendStatus = "idle" | "loading" | "ok" | "error";
+
 // ─────────────────────────────────────────────
 // Main page
 // ─────────────────────────────────────────────
 export default function AdminJobsPage() {
-  const {
-  jobSummaries: jobs,
-  setJobAssignment,
-} = useUnifiedJobs();
+  const { jobSummaries: jobs, setJobAssignment, drivers  } = useUnifiedJobs();
+
+  // 🔹 Live backend jobs snapshot
+  const [backendJobs, setBackendJobs] = useState<JobSummary[] | null>(null);
+  const [backendStatus, setBackendStatus] = useState<BackendStatus>("idle");
+  const [backendMessage, setBackendMessage] = useState<string | null>(null);
+
   const [assignModal, setAssignModal] = useState<AssignModalState>({
     open: false,
     job: null,
   });
   const [selectedDriverId, setSelectedDriverId] = useState<string>("");
 
-  
-  // Assignment config (from types default). In future, this will be fed by the
-  // /admin/assignment-policy/page.tsx with localStorage.
   const [assignmentConfig] = useState<AssignmentConfig>(() =>
-  structuredClone(defaultAssignmentConfig)
-);
+    structuredClone(defaultAssignmentConfig),
+  );
 
-
-  // Keep a small “last run” summary for auto-assign
   const [lastAutoAssignSummary, setLastAutoAssignSummary] =
     useState<AutoAssignSummary | null>(null);
 
-    const [debugDrawer, setDebugDrawer] = useState<{
-  open: boolean;
-  job: JobSummary | null;
-  scores: ReturnType<typeof scoreDriversForJob> | null;
-}>({
-  open: false,
-  job: null,
-  scores: null,
-});
+  const [debugDrawer, setDebugDrawer] = useState<{
+    open: boolean;
+    job: JobSummary | null;
+    scores: ReturnType<typeof scoreDriversForJob> | null;
+  }>({
+    open: false,
+    job: null,
+    scores: null,
+  });
 
   // today as "YYYY-MM-DD"
   const today = useMemo(
     () => new Date().toISOString().slice(0, 10),
-    []
+    [],
   );
 
-  const activeDrivers = useMemo(
-    () => mockDrivers.filter((d: Driver) => d.isActive),
-    []
+    const activeDrivers = useMemo(
+    () => drivers.filter((d: Driver) => d.isActive),
+    [drivers],
   );
 
-  // Driver load for today (used in strip + scoring context)
+
+  // 🔹 Decide which jobs the UI should render:
+  //    - if backendJobs is loaded (and backend enabled), use that
+  //    - otherwise, fall back to unified store jobs (mock + local state)
+  const effectiveJobs: JobSummary[] = backendJobs ?? jobs;
+
+  // 🔹 Load from backend on mount (if enabled)
+  useEffect(() => {
+    if (!USE_BACKEND) return;
+
+    let cancelled = false;
+
+    async function load() {
+      try {
+        setBackendStatus("loading");
+        setBackendMessage(null);
+
+        const data = await fetchAdminJobs();
+
+        if (cancelled) return;
+
+        setBackendJobs(data);
+        setBackendStatus("ok");
+        setBackendMessage("Live data from Nest + Supabase.");
+      } catch (err) {
+        console.error("[AdminJobsPage] Failed to fetch /admin/jobs", err);
+        if (cancelled) return;
+
+        setBackendStatus("error");
+        setBackendMessage(
+          "Backend unreachable – showing mock/local data instead.",
+        );
+        setBackendJobs(null);
+      }
+    }
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 🔹 Driver load for today (used in strip + scoring context)
   const driverJobCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const d of activeDrivers) {
       counts[d.id] = 0;
     }
 
-    for (const job of jobs) {
+    for (const job of effectiveJobs) {
       if (!job.driverId) continue;
       if (job.pickupDate !== today) continue;
       counts[job.driverId] = (counts[job.driverId] || 0) + 1;
     }
 
     return counts;
-  }, [jobs, activeDrivers, today]);
+  }, [effectiveJobs, activeDrivers, today]);
 
   const pendingJobs = useMemo(
-    () => jobs.filter((j) => j.status === "pending-assignment"),
-    [jobs]
-  );
+  () =>
+    effectiveJobs.filter(
+      (j) => j.status === "pending-assignment" || j.status === "booked",
+    ),
+  [effectiveJobs],
+);
+
 
   const activeJobs = useMemo(
     () =>
-      jobs.filter(
+      effectiveJobs.filter(
         (j) =>
           j.status !== "pending-assignment" &&
           j.status !== "completed" &&
-          j.status !== "cancelled"
+          j.status !== "cancelled",
       ),
-    [jobs]
+    [effectiveJobs],
   );
 
   const completedJobs = useMemo(
-    () => jobs.filter((j) => j.status === "completed"),
-    [jobs]
+    () => effectiveJobs.filter((j) => j.status === "completed"),
+    [effectiveJobs],
   );
 
   /**
@@ -279,17 +338,16 @@ export default function AdminJobsPage() {
    * Returns driverId or null if no suitable driver.
    */
   const getRecommendedDriverId = (job: JobSummary | null): string | null => {
-  if (!job) return null;
-  if (activeDrivers.length === 0) return null;
+    if (!job) return null;
+    if (activeDrivers.length === 0) return null;
 
-  const scores = scoreDriversForJob(job, activeDrivers, assignmentConfig, {
-    driverJobCounts,
-  });
+    const scores = scoreDriversForJob(job, activeDrivers, assignmentConfig, {
+      driverJobCounts,
+    });
 
-  const best = pickBestDriver(scores);
-  return best?.driverId ?? null;
-};
-
+    const best = pickBestDriver(scores);
+    return best?.driverId ?? null;
+  };
 
   const openAssignModal = (job: JobSummary) => {
     setSelectedDriverId("");
@@ -302,56 +360,93 @@ export default function AdminJobsPage() {
   };
 
   const openDebugDrawer = (job: JobSummary) => {
-  const scores = scoreDriversForJob(job, activeDrivers, assignmentConfig, {
-    driverJobCounts,
-  });
+    const scores = scoreDriversForJob(job, activeDrivers, assignmentConfig, {
+      driverJobCounts,
+    });
 
-  setDebugDrawer({
-    open: true,
-    job,
-    scores,
-  });
-};
+    setDebugDrawer({
+      open: true,
+      job,
+      scores,
+    });
+  };
 
-const closeDebugDrawer = () => {
-  setDebugDrawer({
-    open: false,
-    job: null,
-    scores: null,
-  });
-};
+  const closeDebugDrawer = () => {
+    setDebugDrawer({
+      open: false,
+      job: null,
+      scores: null,
+    });
+  };
+
+  // 🔹 Central helper: update unified store AND local backend snapshot
+    // 🔹 Central helper: update unified store AND local backend snapshot
+  const updateAssignmentLocal = useCallback(
+    async (opts: {
+      jobId: string;
+      driverId: string | null;
+      status: JobStatus;
+      mode: AssignmentMode;
+    }) => {
+      // unified store now calls backend when USE_BACKEND === true
+      await setJobAssignment(opts);
+
+      // if we have backendJobs loaded, mirror the changes in this page’s snapshot
+      setBackendJobs((prev) =>
+        prev
+          ? prev.map((job) =>
+              job.id === opts.jobId
+                ? {
+                    ...job,
+                    driverId: opts.driverId ?? undefined,
+                    status: opts.status,
+                    assignmentMode: opts.mode,
+                  }
+                : job,
+            )
+          : prev,
+      );
+    },
+    [setJobAssignment],
+  );
 
 
-  const handleConfirmAssign = () => {
-  if (!assignModal.job || !selectedDriverId) {
-    alert("Please select a driver.");
-    return;
-  }
+    const handleConfirmAssign = async () => {
+    if (!assignModal.job || !selectedDriverId) {
+      alert("Please select a driver.");
+      return;
+    }
 
-  const driver = activeDrivers.find((d) => d.id === selectedDriverId);
-  if (!driver) {
-    alert("Selected driver not found.");
-    return;
-  }
+    const driver = activeDrivers.find((d) => d.id === selectedDriverId);
+    if (!driver) {
+      alert("Selected driver not found.");
+      return;
+    }
 
-  // 🔹 Write into unified store
-  setJobAssignment({
-    jobId: assignModal.job.id,
-    driverId: driver.id,
-    status: "assigned",
-    mode: "manual",
-  });
+    try {
+      await updateAssignmentLocal({
+        jobId: assignModal.job.id,
+        driverId: driver.id,
+        status: "assigned",
+        mode: "manual",
+      });
 
-  closeAssignModal();
-};
+      closeAssignModal();
+    } catch (err) {
+      console.error("Failed to assign driver", err);
+      alert("Failed to assign driver. Please try again.");
+    }
+  };
 
 
   /**
    * Run auto-assign logic for ALL pending jobs (prototype only).
    * Uses scoreDriversForJob + pickBestDriver and updates jobs in state.
    */
-  const handleAutoAssignPending = () => {
-  const pending = jobs.filter((j) => j.status === "pending-assignment");
+    const handleAutoAssignPending = async () => {
+  const pending = effectiveJobs.filter(
+    (j) => j.status === "pending-assignment",
+  );
 
   if (pending.length === 0) {
     setLastAutoAssignSummary({
@@ -362,12 +457,83 @@ const closeDebugDrawer = () => {
     return;
   }
 
+  // ─────────────────────────────────────────
+  // 1) Backend path – let NestJS auto-assign
+  // ─────────────────────────────────────────
+  if (USE_BACKEND) {
+    let assigned = 0;
+    let failed = 0;
+
+    for (const job of pending) {
+      try {
+        const updated = await autoAssignJobOnBackend(job.id);
+
+        const backendDriverId =
+          (updated as any).driverId ??
+          (updated as any).currentDriverId ??
+          null;
+
+        if (!backendDriverId) {
+          // backend tried but could not find driver
+          failed++;
+        } else {
+          assigned++;
+        }
+
+        // Update the frontend snapshot (backendJobs) so UI reflects new state
+        setBackendJobs((prev) =>
+          prev
+            ? prev.map((j) =>
+                j.id === updated.id
+                  ? {
+                      ...j,
+                      driverId: backendDriverId,
+                      status: updated.status,
+                      assignmentMode: updated.assignmentMode,
+                      pickupDate: updated.pickupDate,
+                      pickupSlot: updated.pickupSlot,
+                      stopsCount: updated.stopsCount,
+                      totalBillableWeightKg:
+                        typeof updated.totalBillableWeightKg === "number"
+                          ? updated.totalBillableWeightKg
+                          : Number(updated.totalBillableWeightKg ?? 0),
+                      createdAt: updated.createdAt,
+                    }
+                  : j,
+              )
+            : prev,
+        );
+
+        // (For now we rely on driver PWA mock store;
+        // later in Step E we'll sync the unified store here too.)
+      } catch (err) {
+        console.error(
+          "[AdminJobsPage] autoAssignJobOnBackend failed for",
+          job.id,
+          err,
+        );
+        failed++;
+      }
+    }
+
+    setLastAutoAssignSummary({
+      total: pending.length,
+      assigned,
+      failed,
+    });
+    return;
+  }
+
+  // ─────────────────────────────────────────
+  // 2) Frontend fallback – existing scoring engine
+  // ─────────────────────────────────────────
+
   // Build a mutable copy of today's counts so we can update as we assign
   const tempCounts: Record<string, number> = {};
   for (const d of activeDrivers) {
     tempCounts[d.id] = 0;
   }
-  for (const job of jobs) {
+  for (const job of effectiveJobs) {
     if (!job.driverId) continue;
     if (job.pickupDate !== today) continue;
     tempCounts[job.driverId] = (tempCounts[job.driverId] || 0) + 1;
@@ -381,7 +547,7 @@ const closeDebugDrawer = () => {
       job,
       activeDrivers,
       assignmentConfig,
-      { driverJobCounts: tempCounts }
+      { driverJobCounts: tempCounts },
     );
 
     const best = pickBestDriver(scores);
@@ -390,8 +556,7 @@ const closeDebugDrawer = () => {
       tempCounts[best.driverId] = (tempCounts[best.driverId] || 0) + 1;
       assigned++;
 
-      // 🔹 Persist into unified store
-      setJobAssignment({
+      updateAssignmentLocal({
         jobId: job.id,
         driverId: best.driverId,
         status: "assigned",
@@ -410,6 +575,7 @@ const closeDebugDrawer = () => {
 };
 
 
+
   // ─────────────────────────────────────────────
   // Render
   // ─────────────────────────────────────────────
@@ -425,7 +591,37 @@ const closeDebugDrawer = () => {
               Monitor scheduled and ad-hoc jobs, and manually or automatically
               assign drivers.
             </p>
+
+            {/* Backend / mock status pill */}
+            <div className="mt-2 text-[11px]">
+              {USE_BACKEND ? (
+                <span
+                  className={`inline-flex items-center rounded-full px-2 py-0.5 ${
+                    backendStatus === "ok"
+                      ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                      : backendStatus === "loading"
+                      ? "bg-sky-50 text-sky-700 ring-1 ring-sky-200"
+                      : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+                  }`}
+                >
+                  {backendStatus === "loading" && "Connecting to backend…"}
+                  {backendStatus === "ok" && "Live backend (Nest + Supabase)"}
+                  {backendStatus === "error" &&
+                    "Backend error – using mock/local data"}
+                </span>
+              ) : (
+                <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600 ring-1 ring-slate-200">
+                  Backend disabled – mock dataset only
+                </span>
+              )}
+              {backendMessage && (
+                <span className="ml-2 text-[10px] text-slate-500">
+                  {backendMessage}
+                </span>
+              )}
+            </div>
           </div>
+
           <div className="flex flex-col items-end text-xs text-slate-500">
             <span>
               Pending:{" "}
@@ -440,7 +636,7 @@ const closeDebugDrawer = () => {
               </span>
             </span>
             <span>
-              Completed (mock):{" "}
+              Completed (mock / seed):{" "}
               <span className="font-semibold text-emerald-700">
                 {completedJobs.length}
               </span>
@@ -497,7 +693,9 @@ const closeDebugDrawer = () => {
               <button
                 type="button"
                 onClick={handleAutoAssignPending}
-                disabled={pendingJobs.length === 0 || activeDrivers.length === 0}
+                disabled={
+                  pendingJobs.length === 0 || activeDrivers.length === 0
+                }
                 className="inline-flex items-center rounded-lg bg-indigo-600 px-3 py-1.5 text-[11px] font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
                 Run auto-assign for pending
@@ -561,7 +759,8 @@ const closeDebugDrawer = () => {
                           {job.customerName}
                         </div>
                         <div className="text-[11px] text-slate-500">
-                          Created: {new Date(job.createdAt).toLocaleString()}
+                          Created:{" "}
+                          {new Date(job.createdAt).toLocaleString()}
                         </div>
                       </td>
                       <td className="px-3 py-2 align-top">
@@ -584,10 +783,11 @@ const closeDebugDrawer = () => {
                           {job.stopsCount > 1 ? "s" : ""}
                         </div>
                         <div className="text-[11px] text-slate-500">
-                          {job.totalBillableWeightKg.toFixed(1)} kg billable
+                          {(Number(job.totalBillableWeightKg) || 0).toFixed(1)} kg
+ kg billable
                         </div>
                       </td>
-                      <td className="px-3 py-2 align-top text-right">
+                      <td className="px-3 py-2 align-top text-right space-x-1">
                         <button
                           type="button"
                           onClick={() => openAssignModal(job)}
@@ -603,7 +803,6 @@ const closeDebugDrawer = () => {
                         >
                           Debug
                         </button>
-
                       </td>
                     </tr>
                   ))}
@@ -620,7 +819,7 @@ const closeDebugDrawer = () => {
               Active Jobs
             </h2>
             <p className="text-xs text-slate-500">
-              Jobs that are assigned or in progress (mock data).
+              Jobs that are assigned or in progress (seed/mock data for now).
             </p>
           </div>
 
@@ -654,7 +853,7 @@ const closeDebugDrawer = () => {
                   {activeJobs.map((job) => {
                     const driver =
                       job.driverId &&
-                      mockDrivers.find((d: Driver) => d.id === job.driverId);
+                      drivers.find((d: Driver) => d.id === job.driverId);
                     return (
                       <tr key={job.id}>
                         <td className="px-3 py-2 align-top">
@@ -675,7 +874,8 @@ const closeDebugDrawer = () => {
                           <div className="text-[11px] text-slate-500">
                             {job.stopsCount} stop
                             {job.stopsCount > 1 ? "s" : ""},{" "}
-                            {job.totalBillableWeightKg.toFixed(1)} kg
+                            {(Number(job.totalBillableWeightKg) || 0).toFixed(1)} kg
+ kg
                           </div>
                         </td>
                         <td className="px-3 py-2 align-top">
@@ -721,17 +921,25 @@ const closeDebugDrawer = () => {
         {/* Completed Section (compact) */}
         <section>
           <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-slate-800">
-              Recently Completed
-            </h2>
-            <p className="text-xs text-slate-500">
-              For prototype, this shows completed jobs from mock data.
-            </p>
+            <div>
+              <h2 className="text-sm font-semibold text-slate-800">
+                Recently Completed
+              </h2>
+              <p className="text-xs text-slate-500">
+                Snapshot of latest completed jobs.
+              </p>
+            </div>
+            <Link
+              href="/admin/jobs/completed"
+              className="inline-flex items-center rounded-lg bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-slate-100 hover:bg-slate-800 border border-slate-700"
+            >
+              Completed jobs &amp; POD →
+            </Link>
           </div>
 
           {completedJobs.length === 0 ? (
             <p className="text-xs text-slate-500">
-              No completed jobs in mock dataset.
+              No completed jobs in dataset.
             </p>
           ) : (
             <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -764,7 +972,8 @@ const closeDebugDrawer = () => {
                         </div>
                         <div className="text-[11px] text-slate-500">
                           {job.stopsCount} stops ·{" "}
-                          {job.totalBillableWeightKg.toFixed(1)} kg
+                          {(Number(job.totalBillableWeightKg) || 0).toFixed(1)} kg
+ kg
                         </div>
                       </td>
                       <td className="px-3 py-2 align-top">
@@ -838,7 +1047,9 @@ const closeDebugDrawer = () => {
               >
                 <option value="">-- Choose a driver --</option>
                 {activeDrivers.map((d) => {
-                  const recommendedId = getRecommendedDriverId(assignModal.job);
+                  const recommendedId = getRecommendedDriverId(
+                    assignModal.job,
+                  );
                   const isRecommended = d.id === recommendedId;
                   const jobsToday = driverJobCounts[d.id] ?? 0;
 
@@ -881,126 +1092,145 @@ const closeDebugDrawer = () => {
       )}
 
       {debugDrawer.open && debugDrawer.job && (
-  <div className="fixed inset-0 z-50 flex">
-    {/* overlay */}
-    <div
-      className="absolute inset-0 bg-black/40"
-      onClick={closeDebugDrawer}
-    />
+        <div className="fixed inset-0 z-50 flex">
+          {/* overlay */}
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={closeDebugDrawer}
+          />
 
-    {/* panel */}
-    <div className="relative ml-auto h-full w-full max-w-md bg-white p-5 shadow-xl">
-      <h2 className="text-sm font-semibold text-slate-900">
-        Assignment Debug
-      </h2>
-      <p className="mt-1 text-[11px] text-slate-600">
-        Job <span className="font-mono">{debugDrawer.job.publicId}</span>
-      </p>
+          {/* panel */}
+          <div className="relative ml-auto h-full w-full max-w-md bg-white p-5 shadow-xl">
+            <h2 className="text-sm font-semibold text-slate-900">
+              Assignment Debug
+            </h2>
+            <p className="mt-1 text-[11px] text-slate-600">
+              Job{" "}
+              <span className="font-mono">
+                {debugDrawer.job.publicId}
+              </span>
+            </p>
 
-      {/* policy summary */}
-      <div className="mt-3 rounded-lg border bg-slate-50 p-3 text-[11px] text-slate-700">
-        <div className="font-semibold text-slate-900 mb-1">
-          Assignment Policy (weights)
-        </div>
-        <div>Region: {assignmentConfig.softRules.regionScore.weight}</div>
-        <div>Load: {assignmentConfig.softRules.loadBalanceScore.weight}</div>
-        <div>Fairness: {assignmentConfig.softRules.fairnessScore.weight}</div>
-      </div>
-
-      {/* Score table */}
-      <div className="mt-4 text-xs">
-        <h3 className="text-xs font-semibold text-slate-800 mb-2">
-          Driver Scoring Breakdown
-        </h3>
-
-        <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-2">
-          {debugDrawer.scores?.map((s) => {
-            const driver = activeDrivers.find((d) => d.id === s.driverId);
-            if (!driver) return null;
-
-            const isWinner =
-              s.totalScore ===
-              Math.max(...debugDrawer.scores!.map((x) => x.totalScore));
-
-            return (
-              <div
-                key={s.driverId}
-                className={`rounded-lg border p-3 ${
-                  isWinner
-                    ? "border-emerald-400 bg-emerald-50"
-                    : "border-slate-200 bg-white"
-                }`}
-              >
-                <div className="font-medium text-slate-900">
-                  {driver.name}
-                  {isWinner && (
-                    <span className="ml-1 text-[10px] text-emerald-700">
-                      (Recommended)
-                    </span>
-                  )}
-                </div>
-
-                <div className="mt-1 text-[11px] text-slate-500">
-                  Region: {regionLabel(driver.primaryRegion)} · Today load:{" "}
-                  {driverJobCounts[driver.id] ?? 0}
-                </div>
-
-                <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
-                  <div>
-                    <span className="font-medium">Region score:</span>{" "}
-                    {s.components.regionScore.toFixed(2)}
-                  </div>
-                  <div>
-                    <span className="font-medium">Load score:</span>{" "}
-                    {s.components.loadBalanceScore.toFixed(2)}
-                  </div>
-                  <div>
-                    <span className="font-medium">Fairness:</span>{" "}
-                    {s.components.fairnessScore.toFixed(2)}
-                  </div>
-                  <div>
-                    <span className="font-medium">Final:</span>{" "}
-                    {s.totalScore.toFixed(2)}
-                  </div>
-                </div>
-
-                {/* Hard constraint flags */}
-                {s.hardConstraints && (
-                  <div className="mt-3 text-[11px]">
-                    {(
-                      Object.entries(s.hardConstraints) as [HardConstraintKey, boolean][]
-                    ).map(([key, passed]) => (
-                      <div key={key} className="flex items-center gap-2">
-                        <span
-                          className={`h-2 w-2 rounded-full ${
-                            passed ? "bg-emerald-500" : "bg-red-500"
-                          }`}
-                        />
-                        <span className="text-slate-600">
-                          {key} {passed ? "✓" : "✗"}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-
+            {/* policy summary */}
+            <div className="mt-3 rounded-lg border bg-slate-50 p-3 text-[11px] text-slate-700">
+              <div className="mb-1 font-semibold text-slate-900">
+                Assignment Policy (weights)
               </div>
-            );
-          })}
+              <div>
+                Region: {assignmentConfig.softRules.regionScore.weight}
+              </div>
+              <div>
+                Load: {assignmentConfig.softRules.loadBalanceScore.weight}
+              </div>
+              <div>
+                Fairness: {assignmentConfig.softRules.fairnessScore.weight}
+              </div>
+            </div>
+
+            {/* Score table */}
+            <div className="mt-4 text-xs">
+              <h3 className="mb-2 text-xs font-semibold text-slate-800">
+                Driver Scoring Breakdown
+              </h3>
+
+              <div className="max-h-[60vh] space-y-2 overflow-y-auto pr-2">
+                {debugDrawer.scores?.map((s) => {
+                  const driver = activeDrivers.find(
+                    (d) => d.id === s.driverId,
+                  );
+                  if (!driver) return null;
+
+                  const isWinner =
+                    s.totalScore ===
+                    Math.max(
+                      ...debugDrawer.scores!.map((x) => x.totalScore),
+                    );
+
+                  return (
+                    <div
+                      key={s.driverId}
+                      className={`rounded-lg border p-3 ${
+                        isWinner
+                          ? "border-emerald-400 bg-emerald-50"
+                          : "border-slate-200 bg-white"
+                      }`}
+                    >
+                      <div className="font-medium text-slate-900">
+                        {driver.name}
+                        {isWinner && (
+                          <span className="ml-1 text-[10px] text-emerald-700">
+                            (Recommended)
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="mt-1 text-[11px] text-slate-500">
+                        Region: {regionLabel(driver.primaryRegion)} ·
+                        Today load: {driverJobCounts[driver.id] ?? 0}
+                      </div>
+
+                      <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+                        <div>
+                          <span className="font-medium">
+                            Region score:
+                          </span>{" "}
+                          {s.components.regionScore.toFixed(2)}
+                        </div>
+                        <div>
+                          <span className="font-medium">Load score:</span>{" "}
+                          {s.components.loadBalanceScore.toFixed(2)}
+                        </div>
+                        <div>
+                          <span className="font-medium">Fairness:</span>{" "}
+                          {s.components.fairnessScore.toFixed(2)}
+                        </div>
+                        <div>
+                          <span className="font-medium">Final:</span>{" "}
+                          {s.totalScore.toFixed(2)}
+                        </div>
+                      </div>
+
+                      {/* Hard constraint flags */}
+                      {s.hardConstraints && (
+                        <div className="mt-3 text-[11px]">
+                          {(
+                            Object.entries(
+                              s.hardConstraints,
+                            ) as [HardConstraintKey, boolean][]
+                          ).map(([key, passed]) => (
+                            <div
+                              key={key}
+                              className="flex items-center gap-2"
+                            >
+                              <span
+                                className={`h-2 w-2 rounded-full ${
+                                  passed
+                                    ? "bg-emerald-500"
+                                    : "bg-red-500"
+                                }`}
+                              />
+                              <span className="text-slate-600">
+                                {key} {passed ? "✓" : "✗"}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <button
+              onClick={closeDebugDrawer}
+              className="mt-4 w-full rounded-lg bg-slate-800 py-2 text-xs text-white hover:bg-slate-900"
+            >
+              Close
+            </button>
+          </div>
         </div>
-      </div>
-
-      <button
-        onClick={closeDebugDrawer}
-        className="mt-4 w-full rounded-lg bg-slate-800 py-2 text-xs text-white hover:bg-slate-900"
-      >
-        Close
-      </button>
-    </div>
-  </div>
-)}
-
+      )}
     </div>
   );
 }

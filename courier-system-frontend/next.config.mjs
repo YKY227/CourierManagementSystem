@@ -1,8 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: {
-    appDir: true
-  }
+  // remove invalid experimental.appDir if it’s still there
 };
 
 export default nextConfig;

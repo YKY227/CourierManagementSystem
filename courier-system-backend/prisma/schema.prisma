@@ -278,4 +278,9 @@ model ProofPhoto {
   metadata  Json?
 
   createdAt DateTime @default(now())
+
+  @@index([jobId])
+@@index([stopId])
+@@index([driverId])
+
 }

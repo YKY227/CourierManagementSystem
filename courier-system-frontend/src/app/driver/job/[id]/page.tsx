@@ -1,12 +1,11 @@
-//src/app/driver/job/[id]/page.tsx
+// src/app/driver/job/[id]/page.tsx
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-//import { useDriverJobs } from "../../../../lib/driver-jobs-store";
 import { useUnifiedJobs } from "../../../../lib/unified-jobs-store";
-//import type { DriverJobStop } from "../../../../lib/mock/driver-jobs";
 import type { DriverJobStop, RoutePattern } from "@/lib/types";
+import { uploadProofPhoto } from "@/lib/api/driver-proof";
 
 type JobDetailPageProps = {
   params: { id: string };
@@ -28,6 +27,7 @@ function statusLabel(status: string) {
       return status;
   }
 }
+
 function routePatternLabel(pattern?: RoutePattern) {
   switch (pattern) {
     case "one-to-many":
@@ -42,7 +42,6 @@ function routePatternLabel(pattern?: RoutePattern) {
       return "";
   }
 }
-
 
 function stopTypeLabel(type: DriverJobStop["type"]) {
   switch (type) {
@@ -59,27 +58,65 @@ export default function DriverJobDetailPage({ params }: JobDetailPageProps) {
   const router = useRouter();
   const { id } = params;
 
-  // const {
-  //   jobs,
-  //   pendingActions,
-  //   loaded,
-  //   markJobStatus,
-  //   markStopCompleted,
-  // } = useDriverJobs();
-
-
   const {
-  driverJobs: jobs,
-  pendingActions,
-  loaded,
-  markDriverJobStatus:markJobStatus ,        // rename locally if you like
-  markDriverStopCompleted: markStopCompleted,
-} = useUnifiedJobs();
+    driverJobs: jobs,
+    pendingActions,
+    loaded,
+    markDriverJobStatus: markJobStatus,
+    markDriverStopCompleted: markStopCompleted,
+  } = useUnifiedJobs();
 
   const job = useMemo(
     () => jobs.find((j) => j.id === id),
     [jobs, id]
   );
+
+  // ─────────────────────────────────────────────
+  // Photo upload local state
+  // ─────────────────────────────────────────────
+  const [activeStopId, setActiveStopId] = useState<string | null>(null);
+  const [uploadingStopId, setUploadingStopId] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [localProofs, setLocalProofs] = useState<Record<string, string[]>>({});
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleOpenFilePicker = (stopId: string) => {
+    setActiveStopId(stopId);
+    setUploadError(null);
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange: React.ChangeEventHandler<HTMLInputElement> = async (
+    event
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file || !job || !activeStopId) {
+      event.target.value = "";
+      return;
+    }
+
+    try {
+      setUploadingStopId(activeStopId);
+      setUploadError(null);
+
+      const proof = await uploadProofPhoto(job.id, file, activeStopId);
+
+      // Store thumbnail locally so driver sees immediate feedback
+      setLocalProofs((prev) => ({
+        ...prev,
+        [activeStopId]: [...(prev[activeStopId] ?? []), proof.url],
+      }));
+    } catch (err: any) {
+      console.error("[DriverJobDetailPage] upload failed", err);
+      setUploadError(err?.message ?? "Failed to upload photo.");
+    } finally {
+      setUploadingStopId(null);
+      event.target.value = "";
+    }
+  };
+
+  // ─────────────────────────────────────────────
 
   if (!loaded) {
     return (
@@ -101,7 +138,7 @@ export default function DriverJobDetailPage({ params }: JobDetailPageProps) {
         </button>
         <p className="text-sm font-semibold">Job not found</p>
         <p className="mt-1 text-xs text-slate-400">
-          This job ID is not in the current offline dataset.
+          This job ID is not in the current dataset.
         </p>
       </div>
     );
@@ -127,11 +164,11 @@ export default function DriverJobDetailPage({ params }: JobDetailPageProps) {
             <p className="text-xs font-semibold text-slate-50">
               {statusLabel(job.status)}
             </p>
-             {job.routePattern && (
-    <p className="mt-0.5 text-[10px] text-slate-300">
-      Route type: {routePatternLabel(job.routePattern)}
-    </p>
-  )}
+            {job.routePattern && (
+              <p className="mt-0.5 text-[10px] text-slate-300">
+                Route type: {routePatternLabel(job.routePattern)}
+              </p>
+            )}
             {hasPendingForJob && (
               <p className="text-[10px] text-amber-300">Pending sync…</p>
             )}
@@ -139,7 +176,18 @@ export default function DriverJobDetailPage({ params }: JobDetailPageProps) {
         </div>
       </header>
 
-      <main className="mx-auto max-w-md px-4 py-4 space-y-4">
+      <main className="mx-auto max-w-md space-y-4 px-4 py-4">
+        {/* Hidden file input shared by all stops */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          // On mobile, many browsers will open camera first for image/*
+          capture="environment"
+          className="hidden"
+          onChange={handleFileChange}
+        />
+
         {/* Job meta */}
         <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
           <div className="flex items-start justify-between gap-2">
@@ -150,20 +198,19 @@ export default function DriverJobDetailPage({ params }: JobDetailPageProps) {
               <p className="text-sm font-semibold text-slate-50">
                 {job.originLabel}
               </p>
-              <p className="text-[11px] text-slate-400">
-                {job.areaLabel}
-              </p>
+              <p className="text-[11px] text-slate-400">{job.areaLabel}</p>
             </div>
             <div className="text-right text-[11px] text-slate-300">
               <p>{job.pickupDate}</p>
               <p className="font-medium">{job.pickupWindow}</p>
               <p className="mt-1 text-slate-400">
-                {job.totalStops} stops · {job.totalBillableWeightKg.toFixed(1)} kg
+                {job.totalStops} stops · {job.totalBillableWeightKg.toFixed(1)}{" "}
+                kg
               </p>
             </div>
           </div>
 
-          {/* Driver actions (offline) */}
+          {/* Driver actions */}
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
@@ -182,7 +229,7 @@ export default function DriverJobDetailPage({ params }: JobDetailPageProps) {
 
           {hasPendingForJob && (
             <p className="mt-2 text-[10px] text-amber-300">
-              Changes stored locally – will sync when online & connected to
+              Changes stored locally – will sync when online &amp; connected to
               server.
             </p>
           )}
@@ -191,7 +238,7 @@ export default function DriverJobDetailPage({ params }: JobDetailPageProps) {
         {/* Stops timeline */}
         <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
-            Route & Stops
+            Route &amp; Stops
           </h2>
 
           <ol className="relative border-l border-slate-700 pl-4">
@@ -202,6 +249,8 @@ export default function DriverJobDetailPage({ params }: JobDetailPageProps) {
                 const hasPendingForStop = pendingActions.some(
                   (a) => a.jobId === job.id && a.stopId === stop.id
                 );
+                const localUrls = localProofs[stop.id] ?? [];
+
                 return (
                   <li key={stop.id} className="mb-5 last:mb-0">
                     <div className="absolute -left-[7px] mt-1.5 h-3.5 w-3.5 rounded-full border border-slate-500 bg-slate-900" />
@@ -224,7 +273,49 @@ export default function DriverJobDetailPage({ params }: JobDetailPageProps) {
                         </p>
                       )}
 
-                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                      {/* Existing proofPhotoUrl from backend (latest) */}
+                      {stop.proofPhotoUrl && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <a
+                            href={stop.proofPhotoUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-block"
+                          >
+                            <img
+                              src={stop.proofPhotoUrl}
+                              alt="Proof"
+                              className="h-12 w-12 rounded-md border border-slate-700 object-cover"
+                            />
+                          </a>
+                          <span className="self-center text-[10px] text-slate-500">
+                            Latest proof from server
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Locally uploaded proofs this session */}
+                      {localUrls.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {localUrls.map((url, idx) => (
+                            <a
+                              key={idx}
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-block"
+                            >
+                              <img
+                                src={url}
+                                alt={`Proof ${idx + 1}`}
+                                className="h-12 w-12 rounded-md border border-slate-700 object-cover"
+                              />
+                            </a>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
                         <button
                           type="button"
                           onClick={() => markStopCompleted(job.id, stop.id)}
@@ -237,18 +328,24 @@ export default function DriverJobDetailPage({ params }: JobDetailPageProps) {
                         >
                           {stop.completed ? "Completed" : "Mark completed"}
                         </button>
+
                         <button
                           type="button"
                           className="rounded-md border border-slate-600 px-2 py-1 text-[10px] text-slate-100 hover:border-sky-500"
                         >
                           Call / WhatsApp
                         </button>
+
                         <button
-  type="button"
-  className="rounded-md border border-slate-600 px-2 py-1 text-[10px] text-slate-100 hover:border-sky-500"
->
-   Take a Photo
-</button>
+                          type="button"
+                          onClick={() => handleOpenFilePicker(stop.id)}
+                          disabled={uploadingStopId === stop.id}
+                          className="rounded-md border border-slate-600 px-2 py-1 text-[10px] text-slate-100 hover:border-sky-500 disabled:opacity-60"
+                        >
+                          {uploadingStopId === stop.id
+                            ? "Uploading…"
+                            : "Take / Upload photo"}
+                        </button>
 
                         {hasPendingForStop && (
                           <span className="text-[10px] text-amber-300">
@@ -262,10 +359,14 @@ export default function DriverJobDetailPage({ params }: JobDetailPageProps) {
               })}
           </ol>
 
+          {uploadError && (
+            <p className="mt-3 text-[10px] text-red-400">{uploadError}</p>
+          )}
+
           <p className="mt-4 text-[11px] text-slate-500">
-            All changes are stored locally so you can continue even if network
-            is unstable. When we connect this to the backend, these updates will
-            sync to the operations system and customer tracking.
+            Photos are uploaded to the server as proof of pickup/delivery. In a
+            real deployment, customers will be able to see these on the tracking
+            page.
           </p>
         </section>
       </main>

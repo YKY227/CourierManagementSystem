@@ -6,10 +6,12 @@ import { useMemo } from "react";
 
 import { useUnifiedJobs } from "@/lib/unified-jobs-store";
 import { useDriverIdentity } from "@/lib/use-driver-identity";
-import type { DriverJob, RoutePattern  } from "@/lib/types";
+import type { DriverJob, RoutePattern, DriverJobStatus } from "@/lib/types";
 
-
-function statusLabel(status: string) {
+// ─────────────────────────────────────────────
+// Small helpers
+// ─────────────────────────────────────────────
+function statusLabel(status: DriverJobStatus | string) {
   switch (status) {
     case "booked":
       return "Booked";
@@ -41,8 +43,29 @@ function routePatternLabel(pattern?: RoutePattern) {
   }
 }
 
+// Normalise pickupDate to "YYYY-MM-DD"
+function toDateKey(value: string | null | undefined): string {
+  if (!value) return "";
+  // Handles both "2025-12-02" and "2025-12-02T00:00:00.000Z"
+  return value.slice(0, 10);
+}
 
+// Defensively parse weight (string | number → number)
+function toWeightNumber(weight: unknown): number {
+  if (typeof weight === "number") return weight;
+  if (typeof weight === "string") {
+    const n = Number(weight);
+    return Number.isFinite(n) ? n : 0;
+  }
+  return 0;
+}
+
+// ─────────────────────────────────────────────
+// Page component
+// ─────────────────────────────────────────────
 export default function DriverJobsPage() {
+  // NOTE: We don't actually use markDriverJobStatus / markDriverStopCompleted
+  // on this list page; they are used in the job detail page.
   const { driverJobs, loaded } = useUnifiedJobs();
   const { driver } = useDriverIdentity();
 
@@ -55,33 +78,38 @@ export default function DriverJobsPage() {
   const { todaysJobs, upcomingJobs } = useMemo(() => {
     const all = driverJobs as DriverJobWithDriverId[];
 
-    // If no driver (shouldn't happen because layout guards), just show nothing
     if (!driver) {
-      return { todaysJobs: [] as DriverJobWithDriverId[], upcomingJobs: [] as DriverJobWithDriverId[] };
+      return {
+        todaysJobs: [] as DriverJobWithDriverId[],
+        upcomingJobs: [] as DriverJobWithDriverId[],
+      };
     }
 
     // Check if any jobs are tagged with driver ids
     const anyTagged = all.some(
-      (j) => j.driverId != null || j.assignedDriverId != null
+      (j) => j.driverId != null || j.assignedDriverId != null,
     );
 
-    // If tagged: filter by current driver.id
-    // If not tagged yet (pure mock stage): show ALL jobs as before
+    // If tagged: only show jobs for this driver
+    // If not tagged yet (pure mock stage): show all jobs
     const visibleJobs = anyTagged
       ? all.filter(
           (j) =>
-            j.driverId === driver.id || j.assignedDriverId === driver.id
+            j.driverId === driver.id || j.assignedDriverId === driver.id,
         )
       : all;
 
     const todayStr = new Date().toISOString().slice(0, 10);
 
-    const todays = visibleJobs.filter(
-      (j) => j.pickupDate === todayStr && j.status !== "completed"
-    );
-    const upcoming = visibleJobs.filter(
-      (j) => j.pickupDate > todayStr && j.status !== "completed"
-    );
+    const todays = visibleJobs.filter((j) => {
+      const dateKey = toDateKey(j.pickupDate);
+      return dateKey === todayStr && j.status !== "completed";
+    });
+
+    const upcoming = visibleJobs.filter((j) => {
+      const dateKey = toDateKey(j.pickupDate);
+      return dateKey > todayStr && j.status !== "completed";
+    });
 
     console.log("[DriverJobsPage] visibleJobs:", visibleJobs);
     console.log("[DriverJobsPage] todaysJobs:", todays);
@@ -124,7 +152,7 @@ export default function DriverJobsPage() {
 
       {!hasAnyJobs && (
         <div className="rounded-xl border border-dashed border-slate-700 bg-slate-900/70 px-4 py-6 text-center text-xs text-slate-400">
-          No jobs currently assigned to you in this mock dataset.
+          No jobs currently assigned to you.
           <br />
           Once the admin assigns jobs to your driver ID, they&apos;ll appear
           here.
@@ -137,61 +165,65 @@ export default function DriverJobsPage() {
             Today&apos;s Jobs
           </h2>
           <div className="space-y-3">
-            {todaysJobs.map((job) => (
-              <Link
-  key={job.id}
-  href={`/driver/job/${job.id}`}
-  className="block rounded-2xl border border-slate-800 bg-slate-900/80 p-4 text-xs hover:border-sky-500 hover:bg-slate-900 transition"
->
-  {/* Top row: ID + status pill */}
-  <div className="mb-2 flex items-center justify-between gap-2">
-    <p className="font-mono text-[11px] text-slate-400">
-      {job.displayId}
-    </p>
-    <span className="rounded-full border border-sky-500 bg-sky-900/60 px-2 py-0.5 text-[10px] font-medium text-sky-100">
-      {statusLabel(job.status)}
-    </span>
-    {job.routePattern && (
-      <span className="rounded-full border border-slate-600 bg-slate-800/80 px-2 py-0.5 text-[9px] font-medium text-slate-100">
-        Route: {routePatternLabel(job.routePattern)}
-      </span>
-    )}
-  </div>
+            {todaysJobs.map((job) => {
+              const weight = toWeightNumber(job.totalBillableWeightKg);
+              const dateKey = toDateKey(job.pickupDate);
 
-  {/* Middle: customer + area */}
-  <div className="mb-3">
-    <p className="text-sm font-semibold text-slate-50">
-      {job.originLabel}
-    </p>
-    <p className="text-[11px] text-slate-400">
-      Area: {job.areaLabel}
-    </p>
-  </div>
+              return (
+                <Link
+                  key={job.id}
+                  href={`/driver/job/${job.id}`}
+                  className="block rounded-2xl border border-slate-800 bg-slate-900/80 p-4 text-xs transition hover:border-sky-500 hover:bg-slate-900"
+                >
+                  {/* Top row: ID + status pill + route pattern */}
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="font-mono text-[11px] text-slate-400">
+                      {job.displayId}
+                    </p>
+                    <span className="rounded-full border border-sky-500 bg-sky-900/60 px-2 py-0.5 text-[10px] font-medium text-sky-100">
+                      {statusLabel(job.status)}
+                    </span>
+                    {job.routePattern && (
+                      <span className="rounded-full border border-slate-600 bg-slate-800/80 px-2 py-0.5 text-[9px] font-medium text-slate-100">
+                        Route: {routePatternLabel(job.routePattern)}
+                      </span>
+                    )}
+                  </div>
 
-  {/* Info row */}
-  <div className="mb-3 flex items-start justify-between gap-4 text-[11px] text-slate-300">
-    <div>
-      <p className="text-slate-400">Pickup</p>
-      <p className="font-medium">
-        {job.pickupDate} · {job.pickupWindow}
-      </p>
-    </div>
-    <div className="text-right">
-      <p className="text-slate-400">Stops / Weight</p>
-      <p className="font-medium">
-        {job.totalStops} stops · {job.totalBillableWeightKg.toFixed(1)} kg
-      </p>
-    </div>
-  </div>
+                  {/* Middle: customer + area */}
+                  <div className="mb-3">
+                    <p className="text-sm font-semibold text-slate-50">
+                      {job.originLabel}
+                    </p>
+                    <p className="text-[11px] text-slate-400">
+                      Area: {job.areaLabel}
+                    </p>
+                  </div>
 
-  {/* Bottom row */}
-  <div className="flex items-center justify-between text-[10px] text-slate-400">
-    <span>Tap to view route &amp; stops →</span>
-    <span className="font-medium text-sky-300">View job</span>
-  </div>
-</Link>
+                  {/* Info row */}
+                  <div className="mb-3 flex items-start justify-between gap-4 text-[11px] text-slate-300">
+                    <div>
+                      <p className="text-slate-400">Pickup</p>
+                      <p className="font-medium">
+                        {dateKey} · {job.pickupWindow}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-slate-400">Stops / Weight</p>
+                      <p className="font-medium">
+                        {job.totalStops} stops · {weight.toFixed(1)} kg
+                      </p>
+                    </div>
+                  </div>
 
-            ))}
+                  {/* Bottom row */}
+                  <div className="flex items-center justify-between text-[10px] text-slate-400">
+                    <span>Tap to view route &amp; stops →</span>
+                    <span className="font-medium text-sky-300">View job</span>
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         </section>
       )}
@@ -202,38 +234,42 @@ export default function DriverJobsPage() {
             Upcoming Jobs
           </h2>
           <div className="space-y-3">
-            {upcomingJobs.map((job) => (
-              <Link
-                key={job.id}
-                href={`/driver/job/${job.id}`}
-                className="block rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-xs hover:border-sky-500 hover:bg-slate-900"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <p className="font-mono text-[11px] text-slate-400">
-                      {job.displayId}
-                    </p>
-                    <p className="text-sm font-semibold text-slate-50">
-                      {job.originLabel}
-                    </p>
-                    <p className="text-[11px] text-slate-400">
-                      {job.areaLabel}
-                    </p>
+            {upcomingJobs.map((job) => {
+              const weight = toWeightNumber(job.totalBillableWeightKg);
+              const dateKey = toDateKey(job.pickupDate);
+
+              return (
+                <Link
+                  key={job.id}
+                  href={`/driver/job/${job.id}`}
+                  className="block rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-xs hover:border-sky-500 hover:bg-slate-900"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="font-mono text-[11px] text-slate-400">
+                        {job.displayId}
+                      </p>
+                      <p className="text-sm font-semibold text-slate-50">
+                        {job.originLabel}
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        {job.areaLabel}
+                      </p>
+                    </div>
+                    <div className="text-right text-[11px] text-slate-300">
+                      <p>{dateKey}</p>
+                      <p className="font-medium">{job.pickupWindow}</p>
+                      <p className="mt-1 text-slate-400">
+                        {job.totalStops} stops · {weight.toFixed(1)} kg
+                      </p>
+                      <p className="mt-0.5 text-[10px] text-slate-500">
+                        Not started
+                      </p>
+                    </div>
                   </div>
-                  <div className="text-right text-[11px] text-slate-300">
-                    <p>{job.pickupDate}</p>
-                    <p className="font-medium">{job.pickupWindow}</p>
-                    <p className="mt-1 text-slate-400">
-                      {job.totalStops} stops ·{" "}
-                      {job.totalBillableWeightKg.toFixed(1)} kg
-                    </p>
-                    <p className="mt-0.5 text-[10px] text-slate-500">
-                      Not started
-                    </p>
-                  </div>
-                </div>
-              </Link>
-            ))}
+                </Link>
+              );
+            })}
           </div>
         </section>
       )}
