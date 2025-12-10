@@ -10,6 +10,7 @@ import { AdminService } from './admin/admin.service';
 import { AdminController } from './admin/admin.controller';
 import { DriverModule } from './driver/driver.module';
 import { DriverProofController } from './driver/driver-proof.controller';
+import {MailModule} from './mail/mail.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { DriverProofController } from './driver/driver-proof.controller';
     DriversModule,
     JobsModule,
     DriverModule,
+    MailModule
   ],
   controllers: [
     AppController,

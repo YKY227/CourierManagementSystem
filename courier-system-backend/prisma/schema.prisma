@@ -80,6 +80,12 @@ enum JobStopStatus {
   COMPLETED
   FAILED
 }
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+}
+
 
 model Driver {
   id        String   @id @default(cuid())
@@ -178,6 +184,10 @@ model Job {
   stops        JobStop[]
   assignments  JobAssignment[]
   proofPhotos  ProofPhoto[]
+
+  paymentStatus      PaymentStatus @default(PENDING)
+  paymentConfirmedAt DateTime?     @db.Timestamptz(6)
+
 
   @@index([status])
   @@index([pickupDate])

@@ -3,7 +3,9 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service'; // keep this
 import { AssignJobDto } from './dto/assign-job.dto';
 import { UpdateDriverDto } from './dto/update-driver.dto';
-import { Prisma, $Enums } from '../../generated/prisma/client';
+import { Prisma, $Enums, JobStatus, JobStopType } from '../../generated/prisma/client';
+import { CreateBookingDto } from './dto/create-booking.dto';
+import { MailService } from "../mail/mail.service";
 
 export interface AdminJobDetailResponse {
   job: {
@@ -12,10 +14,10 @@ export interface AdminJobDetailResponse {
     customerName: string;
     jobType: string;
     status: string;
-    assignmentMode: string| null;
+    assignmentMode: string | null;
     pickupRegion: string;
     pickupDate: string;
-    pickupSlot: string| null;
+    pickupSlot: string | null;
     stopsCount: number;
     totalBillableWeightKg: string | number;
     driverId: string | null;
@@ -45,10 +47,67 @@ export interface AdminJobDetailResponse {
   }[];
 }
 
+interface JobFilter {
+  status?: string;
+}
+
+/**
+ * Helper to normalize front-end status strings to Prisma JobStatus enum.
+ * This lets you support both "out-for-pickup" and "out_for_pickup", etc.
+ */
+function normalizeStatus(input?: string): JobStatus | undefined {
+  if (!input) return undefined;
+  const s = input.toLowerCase();
+
+  switch (s) {
+    case 'pending_assign':
+    case 'pending-assignment':
+      return 'pending_assign';
+
+    case 'assigned':
+      return 'assigned';
+
+    case 'out_for_pickup':
+    case 'out-for-pickup':
+      return 'out_for_pickup';
+
+    case 'in_transit':
+    case 'in-transit':
+      return 'in_transit';
+
+    case 'completed':
+      return 'completed';
+
+    case 'cancelled':
+      return 'cancelled';
+
+    default:
+      return undefined;
+  }
+}
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService,private readonly mailService: MailService) {}
+  
+
+  private mapStopTypeToPrisma(
+  type: "pickup" | "delivery" | "return"
+): $Enums.JobStopType {
+  switch (type) {
+    case "pickup":
+      return $Enums.JobStopType.PICKUP;
+    case "delivery":
+      return $Enums.JobStopType.DROPOFF;
+    case "return":
+      return $Enums.JobStopType.RETURN;
+    default:
+      throw new BadRequestException(`Invalid stop type: ${type}`);
+  }
+}
+
+
+
 
   // 🔹 Map Prisma Driver → API Driver (matches frontend Driver type)
   private mapDriverToApi(d: any) {
@@ -84,11 +143,28 @@ export class AdminService {
     };
   }
 
+   // Small helper to generate a public-facing ID like STL-20251208-1234
+  private generatePublicId(pickupDate: Date): string {
+    const y = pickupDate.getFullYear();
+    const m = String(pickupDate.getMonth() + 1).padStart(2, '0');
+    const d = String(pickupDate.getDate()).padStart(2, '0');
+    const rand = Math.floor(1000 + Math.random() * 9000);
+    return `STL-${y}${m}${d}-${rand}`;
+  }
+
   // ─────────────────────────────────────────────
-  // Existing methods (example)
+  // Jobs list WITH optional status filter
   // ─────────────────────────────────────────────
-  async getJobs() {
+  async getJobs(filter: JobFilter = {}) {
+    const where: Prisma.JobWhereInput = {};
+
+    const normalized = normalizeStatus(filter.status);
+    if (normalized) {
+      where.status = normalized;
+    }
+
     return this.prisma.job.findMany({
+      where,
       include: {
         currentDriver: true,
         stops: true,
@@ -115,6 +191,7 @@ export class AdminService {
 
     return job;
   }
+  
 
   /**
    * Auto-assign a job to a driver (very simple prototype logic).
@@ -167,7 +244,7 @@ export class AdminService {
   }
 
   // ─────────────────────────────────────────────
-  // NEW: Assign job to driver
+  // Assign job to driver
   // ─────────────────────────────────────────────
   async assignJob(jobId: string, dto: AssignJobDto) {
     const { driverId, mode } = dto; // mode: 'auto' | 'manual'
@@ -264,85 +341,241 @@ export class AdminService {
   }
 
   async getJobDetail(jobId: string): Promise<AdminJobDetailResponse> {
-  const job = await this.prisma.job.findUnique({
-    where: { id: jobId },
-    include: {
-      currentDriver: true,
-      stops: true,
-      proofPhotos: true,
-    },
-  });
+    const job = await this.prisma.job.findUnique({
+      where: { id: jobId },
+      include: {
+        currentDriver: true,
+        stops: true,
+        proofPhotos: true,
+      },
+    });
 
-  if (!job) {
-    throw new NotFoundException('Job not found');
+    if (!job) {
+      throw new NotFoundException('Job not found');
+    }
+
+    // Map Job -> "JobSummary + driverName/phone" like the frontend expects
+    const totalWeight =
+      typeof job.totalBillableWeightKg === 'number'
+        ? job.totalBillableWeightKg
+        : Number(job.totalBillableWeightKg ?? 0);
+
+    const jobDto: AdminJobDetailResponse['job'] = {
+      id: job.id,
+      publicId: job.publicId,
+      customerName: job.customerName,
+      jobType: job.jobType,
+      status: job.status,
+      assignmentMode: job.assignmentMode,
+      pickupRegion: job.pickupRegion,
+      // If pickupDate is Date in DB, convert to yyyy-mm-dd string
+      pickupDate:
+        job.pickupDate instanceof Date
+          ? job.pickupDate.toISOString().slice(0, 10)
+          : (job.pickupDate as any),
+      pickupSlot: job.pickupSlot,
+      stopsCount: job.stopsCount,
+      totalBillableWeightKg: totalWeight,
+      driverId: job.currentDriverId ?? null,
+      createdAt:
+        job.createdAt instanceof Date
+          ? job.createdAt.toISOString()
+          : (job.createdAt as any),
+      driverName: job.currentDriver?.name ?? null,
+      driverPhone: job.currentDriver?.phone ?? null,
+    };
+
+    const stops: AdminJobDetailResponse['stops'] = job.stops
+      .slice()
+      .sort((a, b) => a.sequenceIndex - b.sequenceIndex)
+      .map((stop) => ({
+        id: stop.id,
+        sequenceIndex: stop.sequenceIndex,
+        type: stop.type, // Prisma enum value, serializes as string
+        label: stop.label,
+        addressLine: stop.addressLine,
+        postalCode: stop.postalCode,
+        region: stop.region,
+        contactName: stop.contactName,
+        contactPhone: stop.contactPhone,
+        status: stop.status,
+        completedAt: stop.completedAt
+          ? stop.completedAt.toISOString()
+          : null,
+      }));
+
+    const proofPhotos: AdminJobDetailResponse['proofPhotos'] = job.proofPhotos
+      .slice()
+      .sort((a, b) => a.takenAt.getTime() - b.takenAt.getTime())
+      .map((photo) => ({
+        id: photo.id,
+        jobId: photo.jobId,
+        stopId: photo.stopId ?? null,
+        url: photo.url,
+        takenAt: photo.takenAt.toISOString(),
+      }));
+
+    return {
+      job: jobDto,
+      stops,
+      proofPhotos,
+    };
   }
 
-  // Map Job -> "JobSummary + driverName/phone" like the frontend expects
-  const totalWeight =
-    typeof job.totalBillableWeightKg === 'number'
-      ? job.totalBillableWeightKg
-      : Number(job.totalBillableWeightKg ?? 0);
+  async getPublicTrackingByPublicId(
+  publicId: string,
+  ): Promise<AdminJobDetailResponse> {
+    // First find job by publicId (this is what customers know, e.g. "STL-241123-0999")
+    const job = await this.prisma.job.findUnique({
+      where: { publicId },
+      select: { id: true },
+    });
 
-  const jobDto: AdminJobDetailResponse['job'] = {
-    id: job.id,
-    publicId: job.publicId,
-    customerName: job.customerName,
-    jobType: job.jobType,
-    status: job.status,
-    assignmentMode: job.assignmentMode,
-    pickupRegion: job.pickupRegion,
-    // If pickupDate is Date in DB, convert to yyyy-mm-dd string
-    pickupDate:
-      job.pickupDate instanceof Date
-        ? job.pickupDate.toISOString().slice(0, 10)
-        : (job.pickupDate as any),
-    pickupSlot: job.pickupSlot,
-    stopsCount: job.stopsCount,
-    totalBillableWeightKg: totalWeight,
-    driverId: job.currentDriverId ?? null,
-    createdAt:
-      job.createdAt instanceof Date
-        ? job.createdAt.toISOString()
-        : (job.createdAt as any),
-    driverName: job.currentDriver?.name ?? null,
-    driverPhone: job.currentDriver?.phone ?? null,
-  };
+    if (!job) {
+      throw new NotFoundException('Job not found');
+    }
 
-  const stops: AdminJobDetailResponse['stops'] = job.stops
-    .slice()
-    .sort((a, b) => a.sequenceIndex - b.sequenceIndex)
-    .map((stop) => ({
-      id: stop.id,
-      sequenceIndex: stop.sequenceIndex,
-      type: stop.type, // Prisma enum value, serializes as string
-      label: stop.label,
-      addressLine: stop.addressLine,
-      postalCode: stop.postalCode,
-      region: stop.region,
-      contactName: stop.contactName,
-      contactPhone: stop.contactPhone,
-      status: stop.status,
-      completedAt: stop.completedAt
-        ? stop.completedAt.toISOString()
-        : null,
-    }));
+    // Reuse your existing detailed mapper (includes stops + proofPhotos)
+    return this.getJobDetail(job.id);
+  }
 
-  const proofPhotos: AdminJobDetailResponse['proofPhotos'] = job.proofPhotos
-    .slice()
-    .sort((a, b) => a.takenAt.getTime() - b.takenAt.getTime())
-    .map((photo) => ({
-      id: photo.id,
-      jobId: photo.jobId,
-      stopId: photo.stopId ?? null,
-      url: photo.url,
-      takenAt: photo.takenAt.toISOString(),
-    }));
+  // ─────────────────────────────────────────────
+  // NEW: create job from public booking
+  // ─────────────────────────────────────────────
+  async createJobFromBooking(dto: CreateBookingDto) {
+    const pickupDate = new Date(dto.pickupDate);
+    const publicId = this.generatePublicId(pickupDate);
 
-  return {
-    job: jobDto,
-    stops,
-    proofPhotos,
-  };
-}
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Create Job
+      const job = await tx.job.create({
+        data: {
+          publicId,
+          customerName: dto.customerName,
+          customerEmail: dto.customerEmail ?? null,
+          customerPhone: dto.customerPhone ?? null,
+          serviceType: dto.serviceType ?? null,
+          routeType: dto.routeType ?? null,
+          pickupRegion: dto.pickupRegion,
+          pickupDate,
+          pickupSlot: dto.pickupSlot,
+          jobType: dto.jobType,
+          status: JobStatus.booked,
+          assignmentMode: null,
+          totalBillableWeightKg:
+            dto.totalBillableWeightKg != null
+              ? dto.totalBillableWeightKg
+              : 0,
+          source: 'public-booking',
+        },
+      });
+
+      // 2. Optionally create stops
+      if (dto.stops && dto.stops.length > 0) {
+        await tx.jobStop.createMany({
+          data: dto.stops.map((s, index) => ({
+            jobId: job.id,
+            sequenceIndex: index,
+            // Map "pickup" | "delivery" | "return" → Prisma enum
+            type: this.mapStopTypeToPrisma(s.type),
+            label: s.label,
+            addressLine: s.addressLine,
+            postalCode: s.postalCode ?? "",
+            region: s.region as any, // if RegionCode is also uppercase you can clean this later
+            contactName: s.contactName ?? "",
+            contactPhone: s.contactPhone ?? "",
+            status: $Enums.JobStopStatus.PENDING,
+          })),
+        });
+      }
+
+
+      // You *could* auto-assign a driver here later by calling this.autoAssignJob(job.id)
+
+      // 3. Return job with stops so frontend gets ID + publicId
+      const created = await tx.job.findUnique({
+        where: { id: job.id },
+        include: { stops: true },
+      });
+
+      return created;
+    });
+  }
+
+    async markPaymentSuccess(jobId: string) {
+    // 1. Load job with stops and customer contact
+    const job = await this.prisma.job.findUnique({
+      where: { id: jobId },
+      include: {
+        stops: true,
+      },
+    });
+
+    if (!job) {
+      throw new NotFoundException(`Job ${jobId} not found`);
+    }
+
+    // If already paid, we can just return silently (idempotent)
+    if (job.paymentStatus === "PAID") {
+      return job;
+    }
+
+    // 2. Update payment status
+    const updated = await this.prisma.job.update({
+      where: { id: jobId },
+      data: {
+        paymentStatus: "PAID",
+        paymentConfirmedAt: new Date(),
+      },
+      include: {
+        stops: true,
+      },
+    });
+
+    // 3. Send emails (fire and forget – don't block the whole request if email fails)
+    try {
+      const deliveryCount = updated.stops.filter(
+      (s) => s.type === JobStopType.DROPOFF
+      ).length;
+
+      const trackingUrl = `${process.env.PUBLIC_APP_URL ?? "https://yourdomain.com"}/tracking/${updated.publicId}`;
+
+      // Format pickupDate into a YYYY-MM-DD string (or fallback)
+      const pickupDateStr = updated.pickupDate
+      ? updated.pickupDate instanceof Date
+      ? updated.pickupDate.toISOString().slice(0, 10) // "2025-12-11"
+      : String(updated.pickupDate)
+      : "N/A";
+
+      const pickupSlotStr = updated.pickupSlot ?? "N/A";
+
+
+      // Customer email only if we have email
+      if (updated.customerEmail) {
+        await this.mailService.sendBookingPaidCustomerEmail({
+          to: updated.customerEmail,
+          jobId: updated.publicId ?? updated.id,
+          pickupDate: pickupDateStr,
+      pickupSlot: pickupSlotStr,
+          deliveryCount,
+          trackingUrl,
+        });
+      }
+
+      // Admin / dispatch notification
+      await this.mailService.sendBookingPaidAdminEmail({
+        jobId: updated.publicId ?? updated.id,
+        pickupDate: pickupDateStr,
+      pickupSlot: pickupSlotStr,
+        deliveryCount,
+        trackingUrl,
+      });
+    } catch (err) {
+      // We already logged inside MailService; here we just swallow
+      // so that the payment endpoint still returns success.
+    }
+
+    return updated;
+  }
 
 }
