@@ -188,6 +188,12 @@ model Job {
   paymentStatus      PaymentStatus @default(PENDING)
   paymentConfirmedAt DateTime?     @db.Timestamptz(6)
 
+   // Pricing fields
+  currency           String        @default("SGD")
+  quotedPriceCents   Int?          // what customer saw at booking
+  finalPriceCents    Int?          // what we actually charge (can differ later)
+  pricingBreakdown   Json?         // snapshot of breakdown at time of quote
+
 
   @@index([status])
   @@index([pickupDate])
@@ -219,7 +225,11 @@ model JobStop {
   completedByDriverId String?
   completedByDriver   Driver?    @relation("StopCompletedByDriver", fields: [completedByDriverId], references: [id])
 
-   proofPhotos         ProofPhoto[]
+  // NEW: for distance calculation
+  latitude       Float?   // in degrees
+  longitude      Float?   // in degrees
+
+  proofPhotos         ProofPhoto[]
 
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -293,4 +303,34 @@ model ProofPhoto {
 @@index([stopId])
 @@index([driverId])
 
+}
+
+model PricingConfig {
+  id                      String   @id @default(cuid())
+  isActive                Boolean  @default(true)
+
+  // Distance pricing
+  baseDistanceKm          Float    @default(3.0)
+  baseFeeCents            Int      @default(500)    // e.g. $5.00
+  perKmRateCents          Int      @default(80)     // e.g. $0.80/km
+  longHaulThresholdKm     Float    @default(25.0)
+  longHaulPerKmRateCents  Int      @default(120)    // e.g. $1.20/km
+
+  // Multi-stop
+  additionalStopFeeCents  Int      @default(300)    // e.g. $3 per extra stop
+
+  adHocServiceFeeCents      Int    @default(0)
+  specialHandlingFeeCents   Int    @default(0)
+
+  // JSON blobs for flexible config
+  vehicleMultipliers      Json?    // { motorcycle: {...}, car: {...}, ... }
+  categorySurcharges      Json?    // { Document: 0, Fragile: 300, ... }
+  weightBands             Json?    // [ {minKg, maxKg, priceCents, perKgCents?}, ... ]
+  peakHourWindows         Json?    // [ {startHour, endHour, surchargeCents}, ... ]
+  miscAddOns              Json?    // reserve for future
+
+  currency                String   @default("SGD")
+
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 }

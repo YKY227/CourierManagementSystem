@@ -502,27 +502,27 @@ export class AdminService {
     });
   }
 
-    async markPaymentSuccess(jobId: string) {
-    // 1. Load job with stops and customer contact
-    const job = await this.prisma.job.findUnique({
-      where: { id: jobId },
+    async markPaymentSuccess(jobIdentifier: string) {
+    // Accept BOTH internal id or publicId
+    const job = await this.prisma.job.findFirst({
+      where: {
+        OR: [{ id: jobIdentifier }, { publicId: jobIdentifier }],
+      },
       include: {
         stops: true,
       },
     });
 
     if (!job) {
-      throw new NotFoundException(`Job ${jobId} not found`);
+      throw new NotFoundException(`Job ${jobIdentifier} not found`);
     }
 
-    // If already paid, we can just return silently (idempotent)
     if (job.paymentStatus === "PAID") {
       return job;
     }
 
-    // 2. Update payment status
     const updated = await this.prisma.job.update({
-      where: { id: jobId },
+      where: { id: job.id }, // always use internal id for update
       data: {
         paymentStatus: "PAID",
         paymentConfirmedAt: new Date(),
@@ -532,50 +532,54 @@ export class AdminService {
       },
     });
 
-    // 3. Send emails (fire and forget – don't block the whole request if email fails)
+    // 3. Send emails (we already fixed types earlier)
     try {
       const deliveryCount = updated.stops.filter(
-      (s) => s.type === JobStopType.DROPOFF
+        (s) => s.type === JobStopType.DROPOFF
       ).length;
 
-      const trackingUrl = `${process.env.PUBLIC_APP_URL ?? "https://yourdomain.com"}/tracking/${updated.publicId}`;
+      const trackingUrl = `${
+        process.env.PUBLIC_APP_URL ?? "https://yourdomain.com"
+      }/tracking/${updated.publicId}`;
 
-      // Format pickupDate into a YYYY-MM-DD string (or fallback)
       const pickupDateStr = updated.pickupDate
-      ? updated.pickupDate instanceof Date
-      ? updated.pickupDate.toISOString().slice(0, 10) // "2025-12-11"
-      : String(updated.pickupDate)
-      : "N/A";
+        ? updated.pickupDate instanceof Date
+          ? updated.pickupDate.toISOString().slice(0, 10)
+          : String(updated.pickupDate)
+        : "N/A";
 
       const pickupSlotStr = updated.pickupSlot ?? "N/A";
 
-
-      // Customer email only if we have email
       if (updated.customerEmail) {
         await this.mailService.sendBookingPaidCustomerEmail({
           to: updated.customerEmail,
           jobId: updated.publicId ?? updated.id,
           pickupDate: pickupDateStr,
-      pickupSlot: pickupSlotStr,
+          pickupSlot: pickupSlotStr,
           deliveryCount,
           trackingUrl,
         });
       }
 
-      // Admin / dispatch notification
       await this.mailService.sendBookingPaidAdminEmail({
         jobId: updated.publicId ?? updated.id,
         pickupDate: pickupDateStr,
-      pickupSlot: pickupSlotStr,
+        pickupSlot: pickupSlotStr,
         deliveryCount,
         trackingUrl,
+        customerName: updated.customerName,
+        customerEmail: updated.customerEmail,
+        customerPhone: updated.customerPhone,
+        pickupRegion: updated.pickupRegion,
+        serviceType: updated.serviceType,
+        routeType: updated.routeType,
+        jobType: updated.jobType,
       });
+
     } catch (err) {
-      // We already logged inside MailService; here we just swallow
-      // so that the payment endpoint still returns success.
+      // swallow; logged inside MailService
     }
 
     return updated;
   }
-
 }

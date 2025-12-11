@@ -8,9 +8,12 @@ import { DriversModule } from './modules/drivers/drivers.module';
 import { JobsModule } from './modules/jobs/jobs.module';
 import { AdminService } from './admin/admin.service';
 import { AdminController } from './admin/admin.controller';
+import { AdminModule } from "./admin/admin.module";
 import { DriverModule } from './driver/driver.module';
 import { DriverProofController } from './driver/driver-proof.controller';
 import {MailModule} from './mail/mail.module';
+import { TrackingModule } from "./tracking/tracking.module";
+import { PricingModule } from "./pricing/pricing.module";
 
 @Module({
   imports: [
@@ -23,7 +26,10 @@ import {MailModule} from './mail/mail.module';
     DriversModule,
     JobsModule,
     DriverModule,
-    MailModule
+    MailModule,
+    TrackingModule,
+    AdminModule,
+    PricingModule, 
   ],
   controllers: [
     AppController,
