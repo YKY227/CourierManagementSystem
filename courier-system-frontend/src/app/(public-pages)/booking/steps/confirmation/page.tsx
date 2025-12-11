@@ -8,17 +8,13 @@ import { useBooking } from "@/lib/booking-store";
 import { mockEstimatePrice } from "@/lib/pricing";
 import { formatCurrency } from "@/lib/utils";
 
-// Simple helper to generate a fake job ID on the fly
-function generateFakeJobId() {
-  const now = new Date();
-  const y = now.getFullYear().toString().slice(-2);
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  const rand = Math.floor(Math.random() * 9000) + 1000;
-  return `STL-${y}${m}${d}-${rand}`;
-}
+type ConfirmationStepProps = {
+  searchParams?: {
+    jobId?: string;
+  };
+};
 
-export default function ConfirmationStep() {
+export default function ConfirmationStep({ searchParams }: ConfirmationStepProps) {
   const router = useRouter();
   const {
     serviceType,
@@ -27,40 +23,47 @@ export default function ConfirmationStep() {
     deliveries,
     items,
     schedule,
+    resetBooking,
   } = useBooking();
 
-  // 🛡 Guard: if user jumps here without going through wizard, send back
+  // ✅ Real jobId from backend (publicId passed via query string)
+  const jobId = searchParams?.jobId;
+
+  // 🛡 Guard: if user lands here without a jobId, send them back
   useEffect(() => {
-    if (!serviceType) {
+    if (!jobId) {
+      router.replace("/booking/steps/summary");
+      return;
+    }
+
+    // Optional: also ensure wizard data exists (in case of hard refresh)
+    if (
+      !serviceType ||
+      !routeType ||
+      !pickup ||
+      !deliveries ||
+      deliveries.length === 0 ||
+      !items ||
+      items.length === 0 ||
+      !schedule
+    ) {
       router.replace("/booking/steps/delivery-type");
-      return;
     }
-    if (!routeType) {
-      router.replace("/booking/steps/route-type");
-      return;
-    }
-    if (!pickup) {
-      router.replace("/booking/steps/pickup");
-      return;
-    }
-    if (!deliveries || deliveries.length === 0) {
-      router.replace("/booking/steps/deliveries");
-      return;
-    }
-    if (!items || items.length === 0) {
-      router.replace("/booking/steps/items");
-      return;
-    }
-    if (!schedule) {
-      router.replace("/booking/steps/schedule");
-      return;
-    }
-  }, [serviceType, routeType, pickup, deliveries, items, schedule, router]);
+  }, [
+    jobId,
+    serviceType,
+    routeType,
+    pickup,
+    deliveries,
+    items,
+    schedule,
+    router,
+  ]);
 
-  // 🎫 Fake job ID (just for prototype)
-  const jobId = useMemo(() => generateFakeJobId(), []);
+  // ─────────────────────────────────────────────
+  // Reuse pricing & weight logic for recap
+  // ─────────────────────────────────────────────
 
-  // Reuse the same billable weight logic
   const totalBillableWeight = useMemo(() => {
     if (!items) return 0;
     return items.reduce((sum, item) => {
@@ -94,21 +97,23 @@ export default function ConfirmationStep() {
       : "-";
 
   const handleNewBooking = () => {
-    // Later: you might also reset the booking store here.
+    // Reset wizard + start fresh
+    resetBooking();
     router.push("/booking/steps/delivery-type");
   };
 
   const handleTrackJob = () => {
-    // Prototype: send user to tracking page with this fake jobId
-    router.push(`/tracking/${jobId}`);
+    if (!jobId) return;
+    // ✅ Now use real backend publicId
+    router.push(`/tracking/${encodeURIComponent(jobId)}`);
   };
 
   return (
     <StepLayout
       title="Booking Created"
       subtitle="Your courier request has been submitted to the operations team."
-      currentStep={8}
-      totalSteps={8}
+      currentStep={9}
+      totalSteps={9}
       backHref="/booking/steps/summary"
     >
       <div className="space-y-6">
@@ -135,7 +140,7 @@ export default function ConfirmationStep() {
               Job ID
             </h2>
             <p className="mt-1 text-sm font-semibold text-slate-900">
-              {jobId}
+              {jobId ?? "—"}
             </p>
             <p className="mt-1 text-[11px] text-slate-500">
               Use this ID when you contact support or check the job status.
@@ -151,8 +156,10 @@ export default function ConfirmationStep() {
             </p>
             {schedule && (
               <p className="mt-1 text-[11px] text-slate-500">
-                Pickup on <span className="font-medium">{schedule.pickupDate}</span> ·{" "}
-                Slot: <span className="font-medium">{schedule.pickupSlot}</span>
+                Pickup on{" "}
+                <span className="font-medium">{schedule.pickupDate}</span> ·{" "}
+                Slot:{" "}
+                <span className="font-medium">{schedule.pickupSlot}</span>
               </p>
             )}
           </div>
@@ -200,7 +207,7 @@ export default function ConfirmationStep() {
             )}
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-2">
+          <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-4">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
               Delivery Overview
             </h2>
@@ -244,7 +251,8 @@ export default function ConfirmationStep() {
             <button
               type="button"
               onClick={handleTrackJob}
-              className="inline-flex items-center rounded-lg border border-sky-600 px-4 py-2 text-xs font-medium text-sky-700 hover:bg-sky-50"
+              disabled={!jobId}
+              className="inline-flex items-center rounded-lg border border-sky-600 px-4 py-2 text-xs font-medium text-sky-700 hover:bg-sky-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
             >
               Track this job →
             </button>

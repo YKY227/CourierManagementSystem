@@ -1,24 +1,27 @@
 // src/app/(public-pages)/booking/steps/summary.tsx
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { StepLayout } from "@/components/wizard/StepLayout";
 import { useBooking } from "@/lib/booking-store";
 import { mockEstimatePrice } from "@/lib/pricing";
 import { formatCurrency } from "@/lib/utils";
+import {
+  createJobFromBooking,
+  type CreateBookingPayload,
+} from "@/lib/api/admin";
+
+type BookingStop = NonNullable<CreateBookingPayload["stops"]>[number];
 
 export default function SummaryStep() {
   const router = useRouter();
-  const {
-    serviceType,
-    routeType,
-    pickup,
-    deliveries,
-    items,
-    schedule,
-  } = useBooking();
+  const { serviceType, routeType, pickup, deliveries, items, schedule } =
+    useBooking();
+
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   // 🛡 Wizard guard
   useEffect(() => {
@@ -95,17 +98,100 @@ export default function SummaryStep() {
     router.push("/booking/steps/schedule");
   };
 
-  const handleConfirm = () => {
-    // Later this will POST to backend to create a job.
-    router.push("/booking/steps/confirmation");
-  };
+  async function handleConfirm() {
+    if (!pickup || !schedule) {
+      // Guard — wizard should have redirected earlier, but just in case.
+      setSubmitError("Missing pickup or schedule information.");
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      setSubmitError(null);
+
+      // Derive a simple customer identity from pickup info
+      const customerName =
+        pickup.companyName?.trim() ||
+        pickup.contactName?.trim() ||
+        "Customer";
+
+      // For the prototype, we hard-code region to "central".
+      // Later you can derive region from postal code or add a region selector.
+      const fallbackRegion = "central";
+
+            const stops: BookingStop[] = [
+        // Pickup stop
+        {
+          type: "pickup",
+          label:
+            pickup.companyName ||
+            pickup.contactName ||
+            "Pickup location",
+          addressLine:
+            [pickup.addressLine1, pickup.addressLine2]
+              .filter(Boolean)
+              .join(", ") || "Pickup address",
+          postalCode: pickup.postalCode || undefined,
+          region: fallbackRegion,
+          contactName: pickup.contactName || undefined,
+          contactPhone: pickup.contactPhone || undefined,
+        },
+        // Delivery stops
+        ...deliveries.map<BookingStop>((d) => ({
+          type: "delivery",
+          label:
+            d.contactName ||
+            d.addressLine1 ||
+            "Delivery location",
+          addressLine:
+            [d.addressLine1, d.addressLine2]
+              .filter(Boolean)
+              .join(", ") || "Delivery address",
+          postalCode: d.postalCode || undefined,
+          region: fallbackRegion,
+          contactName: d.contactName || undefined,
+          contactPhone: d.contactPhone || undefined,
+        })),
+      ];
+
+
+      // Map wizard state → CreateBookingPayload
+      const payload: CreateBookingPayload = {
+        customerName,
+        customerEmail: pickup.contactEmail || undefined,
+        customerPhone: pickup.contactPhone || undefined,
+        pickupRegion: fallbackRegion,
+        pickupDate: schedule.pickupDate, // already "yyyy-mm-dd"
+        pickupSlot: schedule.pickupSlot,
+        jobType: "scheduled", // simple prototype – everything scheduled
+        serviceType: serviceType ?? undefined,
+        routeType: routeType ?? undefined,
+        totalBillableWeightKg: totalBillableWeight,
+        stops,
+      };
+
+      const created = await createJobFromBooking(payload);
+
+      // Redirect to confirmation page FIRST,
+      // carrying publicId (or id as fallback) via query string.
+      const publicId = created.publicId ?? created.id;
+      router.push(
+        `/booking/steps/payment?jobId=${encodeURIComponent(publicId)}`
+      );
+    } catch (err: any) {
+      console.error("[SummaryStep] Failed to confirm booking", err);
+      setSubmitError(err?.message ?? "Failed to confirm booking");
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   return (
     <StepLayout
       title="Review & Confirm"
       subtitle="Check all details before creating the booking."
       currentStep={7}
-      totalSteps={8}
+      totalSteps={9}
       backHref="/booking/steps/schedule"
     >
       <div className="space-y-6">
@@ -127,7 +213,7 @@ export default function SummaryStep() {
           {/* Stops / weight card */}
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Stops & Weight
+              Stops &amp; Weight
             </h2>
             <p className="mt-1 text-sm font-semibold text-slate-900">
               {deliveries.length} delivery point
@@ -162,14 +248,18 @@ export default function SummaryStep() {
                 Pickup
               </h2>
               <p className="mt-1 text-sm font-semibold text-slate-900">
-                {pickup?.companyName || pickup?.contactName || "Pickup Location"}
+                {pickup?.companyName ||
+                  pickup?.contactName ||
+                  "Pickup Location"}
               </p>
 
               <p className="mt-1 text-xs text-slate-700">
                 {pickup?.addressLine1}
                 {pickup?.addressLine2 ? `, ${pickup.addressLine2}` : ""}
               </p>
-              <p className="text-xs text-slate-700">{pickup?.postalCode}</p>
+              <p className="text-xs text-slate-700">
+                {pickup?.postalCode}
+              </p>
 
               <p className="mt-1 text-[11px] text-slate-500">
                 Contact: {pickup?.contactName} · {pickup?.contactPhone}
@@ -206,7 +296,7 @@ export default function SummaryStep() {
           <div className="space-y-3">
             <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
               <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Deliveries & Items
+                Deliveries &amp; Items
               </h2>
 
               {deliveries.map((d) => {
@@ -237,7 +327,8 @@ export default function SummaryStep() {
 
                     {itemsForDelivery.length === 0 ? (
                       <p className="text-[11px] text-red-500">
-                        No items recorded for this delivery (check Items step).
+                        No items recorded for this delivery (check Items
+                        step).
                       </p>
                     ) : (
                       <ul className="mt-1 space-y-1">
@@ -282,12 +373,18 @@ export default function SummaryStep() {
           </div>
         </div>
 
+        {/* Error message (if any) */}
+        {submitError && (
+          <p className="text-xs text-red-600">{submitError}</p>
+        )}
+
         {/* Footer buttons */}
         <div className="flex items-center justify-between pt-2">
           <button
             type="button"
             onClick={handleBack}
             className="text-xs text-slate-600 hover:text-slate-800"
+            disabled={submitting}
           >
             ← Back to Schedule
           </button>
@@ -295,9 +392,12 @@ export default function SummaryStep() {
           <button
             type="button"
             onClick={handleConfirm}
-            className="inline-flex items-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-1"
+            disabled={submitting}
+            className="inline-flex items-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Confirm & Create Booking →
+            {submitting
+              ? "Creating booking…"
+              : "Confirm & Make Payment →"}
           </button>
         </div>
       </div>

@@ -1,12 +1,12 @@
 // src/app/admin/jobs/completed/page.tsx
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 
-import { useUnifiedJobs } from "@/lib/unified-jobs-store";
 import type { JobSummary } from "@/lib/types";
 import {
+  fetchAdminJobs,
   fetchAdminCompletedJobDetail,
   type AdminJobDetailDto,
 } from "@/lib/api/admin";
@@ -77,7 +77,10 @@ function statusBadge(status: JobSummary["status"]) {
 }
 
 export default function CompletedJobsPage() {
-  const { jobSummaries } = useUnifiedJobs();
+  // 🔹 Local state instead of useUnifiedJobs
+  const [completedJobs, setCompletedJobs] = useState<JobSummary[]>([]);
+  const [jobsLoading, setJobsLoading] = useState(false);
+  const [jobsError, setJobsError] = useState<string | null>(null);
 
   const [search, setSearch] = useState("");
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
@@ -85,31 +88,32 @@ export default function CompletedJobsPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
 
-  const completedJobs = useMemo(
-    () =>
-      jobSummaries
-        .filter((j) => j.status === "completed")
-        .sort(
-          (a, b) =>
-            new Date(b.createdAt).getTime() -
-            new Date(a.createdAt).getTime()
-        ),
-    [jobSummaries]
-  );
+  // 🔹 Fetch completed jobs from backend once on mount
+  useEffect(() => {
+    async function load() {
+      setJobsLoading(true);
+      setJobsError(null);
+      try {
+        const jobs = await fetchAdminJobs("completed"); // hits /api/backend/admin/jobs?status=completed
+        setCompletedJobs(jobs);
+      } catch (e: any) {
+        console.error("[CompletedJobsPage] Failed to load completed jobs", e);
+        setJobsError(e?.message ?? "Failed to load completed jobs");
+      } finally {
+        setJobsLoading(false);
+      }
+    }
+    load();
+  }, []);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return completedJobs;
 
     return completedJobs.filter((j) =>
-      [
-        j.publicId,
-        j.customerName,
-        j.pickupRegion,
-        j.jobType,
-      ]
+      [j.publicId, j.customerName, j.pickupRegion, j.jobType]
         .filter(Boolean)
-        .some((val) => val!.toString().toLowerCase().includes(q))
+        .some((val) => val!.toString().toLowerCase().includes(q)),
     );
   }, [completedJobs, search]);
 
@@ -172,6 +176,13 @@ export default function CompletedJobsPage() {
           {/* later: date range, region dropdown, "has proof" toggle */}
         </div>
 
+        {jobsLoading && (
+          <p className="mb-4 text-xs text-slate-500">Loading completed jobs…</p>
+        )}
+        {jobsError && (
+          <p className="mb-4 text-xs text-red-600">{jobsError}</p>
+        )}
+
         {/* Top 5 section */}
         <section className="mb-6">
           <div className="mb-2 flex items-center justify-between">
@@ -216,8 +227,7 @@ export default function CompletedJobsPage() {
                         ? job.totalBillableWeightKg
                         : Number(job.totalBillableWeightKg ?? 0);
 
-                    // We don't know proof count here yet; could be added to JobSummary later
-                    const hasProofUnknown = true;
+                    const hasProofUnknown = true; // placeholder
 
                     return (
                       <tr
@@ -412,9 +422,9 @@ export default function CompletedJobsPage() {
                         </p>
                       </div>
                       <div className="text-right">
-                        {statusBadge(detail.job.status)}
+                        {statusBadge(detail.job.status as any)}
                         <div className="mt-1 text-[10px] text-slate-500">
-                          {jobTypeBadge(detail.job.jobType)}
+                          {jobTypeBadge(detail.job.jobType as any)}
                         </div>
                       </div>
                     </div>
@@ -452,9 +462,7 @@ export default function CompletedJobsPage() {
                       <ol className="relative border-l border-slate-200 pl-4">
                         {detail.stops
                           .slice()
-                          .sort(
-                            (a, b) => a.sequenceIndex - b.sequenceIndex
-                          )
+                          .sort((a, b) => a.sequenceIndex - b.sequenceIndex)
                           .map((stop) => (
                             <li key={stop.id} className="mb-4 last:mb-0">
                               <div className="absolute -left-[7px] mt-1.5 h-3.5 w-3.5 rounded-full border border-slate-300 bg-white" />
@@ -484,7 +492,7 @@ export default function CompletedJobsPage() {
                                   <p className="mt-0.5 text-[10px] text-emerald-600">
                                     Completed at{" "}
                                     {new Date(
-                                      stop.completedAt
+                                      stop.completedAt,
                                     ).toLocaleString()}
                                   </p>
                                 )}
@@ -523,9 +531,7 @@ export default function CompletedJobsPage() {
                             className="h-20 w-full rounded-md border border-slate-200 object-cover group-hover:border-sky-500"
                           />
                           <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1 text-[9px] text-white">
-                            {new Date(
-                              photo.takenAt
-                            ).toLocaleTimeString([], {
+                            {new Date(photo.takenAt).toLocaleTimeString([], {
                               hour: "2-digit",
                               minute: "2-digit",
                             })}
