@@ -20,6 +20,7 @@ const navItems = [
   { label: "Jobs", href: "/admin/jobs" },
   { label: "Drivers", href: "/admin/drivers" },
   { label: "Assignment Policy", href: "/admin/assignment-policy" },
+  { label: "Pricing Config", href: "/admin/pricing" },
   { label: "Settings", href: "/admin/settings" },
 ];
 

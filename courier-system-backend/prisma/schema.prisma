@@ -90,6 +90,7 @@ enum PaymentStatus {
 model Driver {
   id        String   @id @default(cuid())
   // Core identity
+  code             String?  @unique 
   name      String
   email     String?
   phone     String?
@@ -119,6 +120,10 @@ model Driver {
   // Operational notes
   assignedJobCountToday Int     @default(0)
   notes                 String?
+
+    // 🔐 auth
+  pinHash       String?          // bcrypt hash
+  pinUpdatedAt  DateTime?
 
   // Relations
   assignments       JobAssignment[]
@@ -204,7 +209,7 @@ model JobStop {
   id        String  @id @default(cuid())
 
   jobId     String
-  job       Job     @relation(fields: [jobId], references: [id])
+  job   Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
   sequenceIndex Int              // 0,1,2.. for route ordering
   type          JobStopType      // PICKUP / DROPOFF / RETURN
@@ -241,7 +246,7 @@ model JobAssignment {
   id        String  @id @default(cuid())
 
   jobId     String
-  job       Job     @relation(fields: [jobId], references: [id])
+  job       Job     @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
   driverId  String
   driver    Driver  @relation(fields: [driverId], references: [id])
@@ -285,10 +290,10 @@ model ProofPhoto {
   id        String   @id @default(cuid())
 
   jobId     String
-  job       Job      @relation(fields: [jobId], references: [id])
+  job   Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
   stopId    String?
-  stop      JobStop? @relation(fields: [stopId], references: [id])
+  stop   JobStop? @relation(fields: [stopId], references: [id], onDelete: Cascade)
 
   driverId  String?
   driver    Driver?  @relation(fields: [driverId], references: [id])

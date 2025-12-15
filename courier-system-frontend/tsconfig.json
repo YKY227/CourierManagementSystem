@@ -34,7 +34,7 @@
     "courier-system-frontend  /next-env.d.ts",
     "src",
     ".next/types/**/*.ts"
-, "../courier-system-backend/src/admin/dto"  ],
+, "../courier-system-backend/src/admin/dto", "../courier-system-backend/src/driver/driver-jwt.guard.ts", "../courier-system-backend/src/driver/driver-jwt.strategy.ts"  ],
   "exclude": [
     "courier-system-frontend  /node_modules"
   ]

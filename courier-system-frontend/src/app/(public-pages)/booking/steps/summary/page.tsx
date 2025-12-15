@@ -11,9 +11,16 @@ import { formatCurrency } from "@/lib/utils";
 import {
   createJobFromBooking,
   type CreateBookingPayload,
+  fetchPricingQuote,
+  type PricingQuoteResponse,
 } from "@/lib/api/admin";
 
 type BookingStop = NonNullable<CreateBookingPayload["stops"]>[number];
+
+function centsToDollars(cents?: number) {
+  return cents && cents > 0 ? formatCurrency(cents / 100) : null;
+}
+
 
 export default function SummaryStep() {
   const router = useRouter();
@@ -22,6 +29,11 @@ export default function SummaryStep() {
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+
+
+  const isAdHocService = serviceType === "express-3h";
+  const hasSpecialHandling = items.some((i) => i.specialHandling);
 
   // 🛡 Wizard guard
   useEffect(() => {
@@ -49,7 +61,8 @@ export default function SummaryStep() {
       router.replace("/booking/steps/schedule");
       return;
     }
-  }, [serviceType, routeType, pickup, deliveries, items, schedule, router]);
+  }, [serviceType, routeType, pickup, deliveries, items, schedule, router,isAdHocService,
+    hasSpecialHandling,]);
 
   const totalBillableWeight = useMemo(() => {
     return items.reduce((sum, item) => {
@@ -64,7 +77,13 @@ export default function SummaryStep() {
   // Mock distance for prototype pricing
   const mockDistanceKm = 12;
 
-  const estimatedPrice = useMemo(() => {
+   // Live pricing quote (from backend) – optional, we fall back to mock if it fails
+  const [liveQuote, setLiveQuote] = useState<PricingQuoteResponse | null>(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const [quoteError, setQuoteError] = useState<string | null>(null);
+
+  // Fallback mock pricing (used if backend quote fails or isn't available)
+  const fallbackPrice = useMemo(() => {
     if (!serviceType) return 0;
     return mockEstimatePrice({
       distanceKm: mockDistanceKm,
@@ -73,6 +92,81 @@ export default function SummaryStep() {
       serviceType,
     });
   }, [serviceType, totalBillableWeight, deliveries.length]);
+
+  // Use live quote if available; otherwise fallback
+  const estimatedPrice =
+    liveQuote != null
+      ? liveQuote.totalPriceCents / 100
+      : fallbackPrice;
+
+  // Fire pricing quote when data is ready
+  useEffect(() => {
+    if (!serviceType || !schedule || !pickup || deliveries.length === 0) {
+      setLiveQuote(null);
+      setQuoteError(null);
+      return;
+    }
+
+    // Primary category: for now, pick first item category or default to "Parcel"
+    const primaryCategory =
+      (items && items[0]?.category) || "Parcel";
+
+    // Simple pickup datetime: 9am on selected date (SGT)
+    const pickupDateTimeIso = schedule.pickupDate
+      ? `${schedule.pickupDate}T09:00:00+08:00`
+      : new Date().toISOString();
+
+    // Temporary synthetic stops for distance:
+    //  - Start at Singapore centroid
+    //  - Each delivery roughly 5 km apart along a line
+    const baseLat = 1.3521;
+    const baseLng = 103.8198;
+    const legKm = 5; // pretend each leg is ~5km
+    const degreesPerKm = 1 / 111; // approx near equator
+
+    const syntheticStops = [
+      { latitude: baseLat, longitude: baseLng, type: "pickup" as const },
+      ...deliveries.map((_, index) => {
+        const offsetKm = legKm * (index + 1);
+        const deltaLat = offsetKm * degreesPerKm;
+        return {
+          latitude: baseLat + deltaLat,
+          longitude: baseLng,
+          type: "delivery" as const,
+        };
+      }),
+    ];
+
+    setQuoteLoading(true);
+    setQuoteError(null);
+
+    fetchPricingQuote({
+      vehicleType: "motorcycle", // for now – we can later map serviceType → vehicle
+      itemCategory: primaryCategory,
+      actualWeightKg: totalBillableWeight || 0.5,
+      pickupDateTime: pickupDateTimeIso,
+      stops: syntheticStops,
+
+      isAdHocService,
+      hasSpecialHandling,
+    })
+      .then((quote) => {
+        setLiveQuote(quote);
+      })
+      .catch((err) => {
+        console.error(
+          "[SummaryStep] Failed to fetch live pricing quote",
+          err,
+        );
+        setLiveQuote(null);
+        setQuoteError(
+          "Unable to fetch live quote – using prototype estimate instead.",
+        );
+      })
+      .finally(() => {
+        setQuoteLoading(false);
+      });
+  }, [serviceType, schedule, pickup, deliveries, items, totalBillableWeight]);
 
   const serviceLabel =
     serviceType === "same-day"
@@ -199,16 +293,31 @@ export default function SummaryStep() {
         <div className="grid gap-4 md:grid-cols-3">
           {/* Service card */}
           <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Service
-            </h2>
-            <p className="mt-1 text-sm font-semibold text-slate-900">
-              {serviceLabel}
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Service
+          </h2>
+
+          <p className="mt-1 text-sm font-semibold text-slate-900">
+            {serviceLabel}
+          </p>
+
+          <p className="mt-1 text-[11px] text-slate-500">
+            Route: {routeLabel}
+          </p>
+
+          {isAdHocService && (
+            <p className="mt-1 text-[11px] text-rose-700">
+              ⚡ Ad hoc / Express service
             </p>
-            <p className="mt-1 text-[11px] text-slate-500">
-              Route: {routeLabel}
+          )}
+
+          {hasSpecialHandling && (
+            <p className="mt-1 text-[11px] text-amber-700">
+              ⚠ Special handling required
             </p>
-          </div>
+          )}
+        </div>
+
 
           {/* Stops / weight card */}
           <div className="rounded-xl border border-slate-200 bg-white p-4">
@@ -224,17 +333,96 @@ export default function SummaryStep() {
             </p>
           </div>
 
-          {/* Price card */}
+                    {/* Price card */}
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
               Estimated Charges
             </h2>
+
             <p className="mt-1 text-sm font-semibold text-slate-900">
-              {formatCurrency(estimatedPrice)}
+              {quoteLoading
+                ? "Calculating quote…"
+                : formatCurrency(estimatedPrice)}
             </p>
+
             <p className="mt-1 text-[11px] text-slate-500">
-              Based on mock distance of {mockDistanceKm} km for prototyping.
+              {liveQuote
+                ? `Based on estimated route distance ~${liveQuote.totalDistanceKm.toFixed(
+                    1,
+                  )} km using the pricing engine.`
+                : `Based on mock distance of ${mockDistanceKm} km for prototyping.`}
             </p>
+
+            {quoteError && (
+              <p className="mt-1 text-[11px] text-amber-600">
+                {quoteError}
+              </p>
+            )}
+
+            {liveQuote?.breakdown && (
+            <div className="md:col-span-3 rounded-xl border border-slate-200 bg-white p-4">
+              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Pricing Breakdown
+              </h2>
+
+              <ul className="space-y-1 text-sm text-slate-700">
+                {centsToDollars(liveQuote.breakdown.distanceChargeCents) && (
+                  <li className="flex justify-between">
+                    <span>Distance charge</span>
+                    <span>{centsToDollars(liveQuote.breakdown.distanceChargeCents)}</span>
+                  </li>
+                )}
+
+                {centsToDollars(liveQuote.breakdown.weightChargeCents) && (
+                  <li className="flex justify-between">
+                    <span>Weight charge</span>
+                    <span>{centsToDollars(liveQuote.breakdown.weightChargeCents)}</span>
+                  </li>
+                )}
+
+                {centsToDollars(liveQuote.breakdown.categorySurchargeCents) && (
+                  <li className="flex justify-between">
+                    <span>Category surcharge</span>
+                    <span>{centsToDollars(liveQuote.breakdown.categorySurchargeCents)}</span>
+                  </li>
+                )}
+
+                {centsToDollars(liveQuote.breakdown.multiStopChargeCents) && (
+                  <li className="flex justify-between">
+                    <span>Additional stops</span>
+                    <span>{centsToDollars(liveQuote.breakdown.multiStopChargeCents)}</span>
+                  </li>
+                )}
+
+                {centsToDollars(liveQuote.breakdown.peakHourSurchargeCents) && (
+                  <li className="flex justify-between text-amber-700">
+                    <span>Peak hour surcharge</span>
+                    <span>{centsToDollars(liveQuote.breakdown.peakHourSurchargeCents)}</span>
+                  </li>
+                )}
+
+                {centsToDollars(liveQuote.breakdown.adHocServiceFeeCents) && (
+                  <li className="flex justify-between text-rose-700">
+                    <span>Ad hoc service</span>
+                    <span>{centsToDollars(liveQuote.breakdown.adHocServiceFeeCents)}</span>
+                  </li>
+                )}
+
+                {centsToDollars(liveQuote.breakdown.specialHandlingFeeCents) && (
+                  <li className="flex justify-between text-amber-700">
+                    <span>Special handling</span>
+                    <span>{centsToDollars(liveQuote.breakdown.specialHandlingFeeCents)}</span>
+                  </li>
+                )}
+
+                <li className="mt-2 flex justify-between border-t pt-2 font-semibold text-slate-900">
+                  <span>Total</span>
+                  <span>{formatCurrency(liveQuote.totalPriceCents / 100)}</span>
+                </li>
+              </ul>
+            </div>
+          )}
+
           </div>
         </div>
 

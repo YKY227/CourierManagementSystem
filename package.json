@@ -2,6 +2,7 @@
   "dependencies": {
     "@prisma/adapter-pg": "^7.1.0",
     "dotenv": "^17.2.3",
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "dev": "next dev -p 3000"
   }
 }

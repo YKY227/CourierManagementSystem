@@ -36,6 +36,8 @@ export const itemSchema = z.object({
     .max(200, "Height too large"),
 
   remarks: z.string().optional(),
+
+  specialHandling: z.boolean().default(false),
 });
 
 export type ItemFormSchema = z.infer<typeof itemSchema>;

@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { getDriverToken, clearDriverToken } from "@/lib/driver-auth";
 
 import {
   useDriverIdentity,
@@ -36,17 +37,31 @@ function DriverLayoutInner({ children }: { children: ReactNode }) {
 
   // Guard: if not logged in and not on login page, redirect to /driver/login
   useEffect(() => {
-    if (!loaded) return;
+  if (!loaded) return;
 
-    if (!driver && !isLoginRoute) {
-      router.replace("/driver/login");
-    }
+  const token = getDriverToken();
 
-    // Optional: if someone visits /driver root, send them to /driver/jobs
-    if (driver && pathname === "/driver") {
-      router.replace("/driver/jobs");
-    }
-  }, [loaded, driver, isLoginRoute, pathname, router]);
+  // 1️⃣ Hard auth guard: token is source of truth
+  if (!token && !isLoginRoute) {
+    clearDriverToken();
+    logoutDriver();
+    router.replace("/driver/login");
+    return;
+  }
+
+  // 2️⃣ Identity guard (extra safety)
+  if (!driver && !isLoginRoute) {
+    router.replace("/driver/login");
+    return;
+  }
+
+  // 3️⃣ Convenience redirect
+  if (driver && pathname === "/driver") {
+    router.replace("/driver/jobs");
+    return;
+  }
+}, [loaded, driver, isLoginRoute, pathname, router, logoutDriver]);
+
 
   // While loading identity from localStorage
   if (!loaded) {

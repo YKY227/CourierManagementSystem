@@ -62,6 +62,7 @@ export interface DeliveryItem {
   heightCm: number;
   volumetricWeightKg: number;
   remarks: string;
+  specialHandling?: boolean;
 }
 
 export interface ScheduleInfo {

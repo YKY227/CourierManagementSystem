@@ -3,9 +3,13 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service'; // keep this
 import { AssignJobDto } from './dto/assign-job.dto';
 import { UpdateDriverDto } from './dto/update-driver.dto';
-import { Prisma, $Enums, JobStatus, JobStopType } from '../../generated/prisma/client';
+import { Prisma, $Enums, JobStatus, JobStopType,DriverStatus, VehicleType, RegionCode } from '../../generated/prisma/client';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { MailService } from "../mail/mail.service";
+import { CreateDriverDto } from "./dto/create-driver.dto";
+import * as bcrypt from "bcrypt";
+import * as fs from "fs/promises";
+import * as path from "path";
 
 export interface AdminJobDetailResponse {
   job: {
@@ -90,7 +94,134 @@ function normalizeStatus(input?: string): JobStatus | undefined {
 export class AdminService {
   constructor(private readonly prisma: PrismaService,private readonly mailService: MailService) {}
   
+  async getJobsPaged(opts: {
+    status?: string;
+    page: number;
+    pageSize: number;
+  }) {
+    const { status, page, pageSize } = opts;
 
+    const where = this.buildJobsWhere(status);
+
+    const [total, jobs] = await this.prisma.$transaction([
+      this.prisma.job.count({ where }),
+      this.prisma.job.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        select: {
+          id: true,
+          publicId: true,
+          customerName: true,
+          pickupRegion: true,
+          pickupDate: true,
+          pickupSlot: true,
+          jobType: true,
+          status: true,
+          assignmentMode: true,
+          currentDriverId: true,
+          stopsCount: true,
+          totalBillableWeightKg: true,
+          createdAt: true,
+        },
+      }),
+    ]);
+
+    // ✅ Shape matches what frontend wants (JobSummary-like)
+    const data = jobs.map((j) => ({
+      id: j.id,
+      publicId: j.publicId,
+      customerName: j.customerName,
+      pickupRegion: this.mapRegionToFrontend(j.pickupRegion),
+      pickupDate: j.pickupDate ? j.pickupDate.toISOString() : null,
+      pickupSlot: j.pickupSlot ?? "",
+      jobType: this.mapJobTypeToFrontend(j.jobType),
+      status: this.mapJobStatusToFrontend(j.status),
+      assignmentMode: j.assignmentMode ? this.mapAssignmentModeToFrontend(j.assignmentMode) : undefined,
+      driverId: j.currentDriverId ?? undefined,
+      stopsCount: j.stopsCount ?? 0,
+      totalBillableWeightKg: j.totalBillableWeightKg?.toString?.() ?? "0",
+      createdAt: j.createdAt.toISOString(),
+    }));
+
+    return {
+      page,
+      pageSize,
+      total,
+      data,
+    };
+  }
+
+  // ─────────────────────────────
+  // Status mapping / filtering
+  // ─────────────────────────────
+  private buildJobsWhere(status?: string): Prisma.JobWhereInput {
+    const s = (status ?? "").toLowerCase();
+
+    // Backend enum uses pending_assign, frontend uses pending-assignment
+    if (s === "pending") {
+      return {
+        status: { in: [JobStatus.booked, JobStatus.pending_assign] },
+      };
+    }
+
+    if (s === "active") {
+  return {
+    status: {
+      in: [
+        JobStatus.assigned,
+        JobStatus.out_for_pickup,
+        JobStatus.in_transit,
+      ],
+    },
+  };
+}
+
+
+    if (s === "completed") {
+      return { status: JobStatus.completed };
+    }
+
+    // fallback: allow exact enum name (e.g. status=assigned)
+    // if unknown, return all
+    if (!s) return {};
+    if (Object.values(JobStatus).includes(s as any)) return { status: s as any };
+
+    return {};
+  }
+
+  // ─────────────────────────────
+  // “DB enum” -> “frontend string”
+  // ─────────────────────────────
+  private mapJobStatusToFrontend(s: JobStatus) {
+    switch (s) {
+      case JobStatus.pending_assign:
+        return "pending-assignment";
+      case JobStatus.out_for_pickup:
+        return "out-for-pickup";
+      case JobStatus.in_transit:
+        return "in-transit";
+      default:
+        return s as any; // booked/assigned/completed/failed/cancelled
+    }
+  }
+
+  private mapJobTypeToFrontend(t: any) {
+    return t === "ad_hoc" ? "ad-hoc" : "scheduled";
+  }
+
+  private mapAssignmentModeToFrontend(m: any) {
+    return m; // auto/manual same
+  }
+
+  private mapRegionToFrontend(r: any) {
+    if (r === "north_east") return "north-east";
+    if (r === "island_wide") return "island-wide";
+    return r;
+  }
+
+  
   private mapStopTypeToPrisma(
   type: "pickup" | "delivery" | "return"
 ): $Enums.JobStopType {
@@ -151,6 +282,68 @@ export class AdminService {
     const rand = Math.floor(1000 + Math.random() * 9000);
     return `STL-${y}${m}${d}-${rand}`;
   }
+
+  // inside AdminService
+async deleteJob(jobId: string) {
+  // 1) get proof photos BEFORE deleting DB rows
+  const photos = await this.prisma.proofPhoto.findMany({
+    where: { jobId },
+    select: { url: true },
+  });
+
+  // 2) best-effort delete files on disk
+  for (const p of photos) {
+    if (!p.url) continue;
+
+    // p.url expected like "/uploads/proof-photos/xxx.jpg"
+    const abs = path.join(process.cwd(), p.url.replace(/^\//, ""));
+    await fs.unlink(abs).catch(() => {});
+  }
+
+  // 3) delete the job (DB cascades children)
+  try {
+    await this.prisma.job.delete({ where: { id: jobId } });
+  } catch (e) {
+    throw new NotFoundException("Job not found");
+  }
+}
+
+// Bulk delete jobs by status (Developer Mode feature)
+// DELETE /admin/jobs?status=pending
+async bulkDeleteJobs(opts: { status?: string }) {
+  const status = (opts.status ?? "").trim().toLowerCase();
+
+  if (!status) {
+    throw new BadRequestException("status query is required for bulk delete");
+  }
+
+  // reuse your existing filter builder (already in your file)
+  const where = this.buildJobsWhere(status);
+
+  // If where resolves to {} (unknown status), block it to avoid deleting everything
+  if (!where || Object.keys(where).length === 0) {
+    throw new BadRequestException(
+      `Invalid/unsupported status "${opts.status}" for bulk delete`
+    );
+  }
+
+  // 1) collect proof photo urls (so we can delete local files best-effort)
+  const photos = await this.prisma.proofPhoto.findMany({
+    where: { jobId: { in: (await this.prisma.job.findMany({ where, select: { id: true } })).map(j => j.id) } },
+    select: { url: true },
+  });
+
+  for (const p of photos) {
+    if (!p.url) continue;
+    const abs = path.join(process.cwd(), p.url.replace(/^\//, ""));
+    await fs.unlink(abs).catch(() => {});
+  }
+
+  // 2) delete matching jobs (DB cascade removes stops/photos rows if relations are onDelete: Cascade)
+  await this.prisma.job.deleteMany({ where });
+
+  return { ok: true };
+}
 
   // ─────────────────────────────────────────────
   // Jobs list WITH optional status filter
@@ -300,11 +493,43 @@ export class AdminService {
   }
 
   async listDrivers() {
-    const drivers = await this.prisma.driver.findMany({
-      orderBy: { name: 'asc' },
-    });
-    return drivers.map((d) => this.mapDriverToApi(d));
-  }
+  const rows = await this.prisma.driver.findMany({
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      code: true, // ✅ MUST INCLUDE THIS
+      name: true,
+      email: true,
+      phone: true,
+      vehicleType: true,
+      vehiclePlate: true,
+      primaryRegion: true,
+      secondaryRegions: true,
+      maxJobsPerDay: true,
+      maxJobsPerSlot: true,
+      workDayStartHour: true,
+      workDayEndHour: true,
+      isActive: true,
+      currentStatus: true,
+      lastSeenAt: true,
+      assignedJobCountToday: true,
+      locationLat: true,
+      locationLng: true,
+      notes: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+
+  return rows.map((d) => ({
+    ...d,
+    location:
+      d.locationLat != null && d.locationLng != null
+        ? { lat: d.locationLat, lng: d.locationLng }
+        : null,
+  }));
+}
+
 
   async getDriverById(id: string) {
     const driver = await this.prisma.driver.findUnique({
@@ -318,28 +543,132 @@ export class AdminService {
     return this.mapDriverToApi(driver);
   }
 
-  async updateDriver(id: string, dto: UpdateDriverDto) {
-    const driver = await this.prisma.driver.update({
-      where: { id },
-      data: {
-        // simple pass-through — DTO properties match columns
-        isActive: dto.isActive,
-        currentStatus: dto.currentStatus,
-        maxJobsPerDay: dto.maxJobsPerDay,
-        maxJobsPerSlot: dto.maxJobsPerSlot,
-        workDayStartHour: dto.workDayStartHour,
-        workDayEndHour: dto.workDayEndHour,
-        primaryRegion: dto.primaryRegion,
-        secondaryRegions: dto.secondaryRegions,
-        locationLat: dto.locationLat,
-        locationLng: dto.locationLng,
-        notes: dto.notes,
-      },
-    });
+  async createDriver(dto: CreateDriverDto) {
+  const code = dto.code.trim().toUpperCase();
 
-    return this.mapDriverToApi(driver);
+  // email unique if provided
+  if (dto.email) {
+    const existsEmail = await this.prisma.driver.findFirst({
+      where: { email: dto.email },
+      select: { id: true },
+    });
+    if (existsEmail) throw new BadRequestException("Driver email already exists");
   }
 
+  // code unique (better message than raw prisma error)
+  const existsCode = await this.prisma.driver.findFirst({
+    where: { code },
+    select: { id: true },
+  });
+  if (existsCode) throw new BadRequestException("Driver code already exists");
+
+  const driver = await this.prisma.driver.create({
+    data: {
+      code,
+      name: dto.name,
+      email: dto.email ?? null,
+      phone: dto.phone ?? null,
+      vehicleType: dto.vehicleType,
+      vehiclePlate: dto.vehiclePlate ?? null,
+      primaryRegion: dto.primaryRegion,
+      secondaryRegions: dto.secondaryRegions ?? [],
+      isActive: dto.isActive ?? true,
+      maxJobsPerDay: dto.maxJobsPerDay ?? 20,
+      maxJobsPerSlot: dto.maxJobsPerSlot ?? 6,
+      workDayStartHour: dto.workDayStartHour ?? 8,
+      workDayEndHour: dto.workDayEndHour ?? 18,
+      notes: dto.notes ?? null,
+      currentStatus: DriverStatus.offline,
+    },
+  });
+
+  return this.mapDriverToApi(driver);
+}
+
+async setDriverPin(driverId: string, pin: string) {
+  const p = String(pin ?? "").trim();
+
+  if (!/^\d{6}$/.test(p)) {
+    throw new BadRequestException("PIN must be exactly 6 digits");
+  }
+
+  const driver = await this.prisma.driver.findUnique({ where: { id: driverId } });
+  if (!driver) throw new NotFoundException("Driver not found");
+
+  const pinHash = await bcrypt.hash(p, 10);
+
+  await this.prisma.driver.update({
+    where: { id: driverId },
+    data: { pinHash },
+  });
+
+  return { ok: true };
+}
+
+async resetDriverPin(driverId: string, pin: string) {
+  // same behavior as set — keep it separate for logging/auditing later
+  return this.setDriverPin(driverId, pin);
+}
+
+async deleteDriver(id: string) {
+  // prevent deletion if driver is currentDriver for any non-completed jobs
+  const activeJobs = await this.prisma.job.count({
+    where: {
+      currentDriverId: id,
+      status: { notIn: ["completed", "cancelled", "failed"] as any },
+    },
+  });
+
+  if (activeJobs > 0) {
+    throw new BadRequestException("Driver has active jobs. Unassign jobs before deletion.");
+  }
+
+  // mark old assignments inactive (cleanup)
+  await this.prisma.jobAssignment.updateMany({
+    where: { driverId: id, isActive: true },
+    data: { isActive: false },
+  });
+
+  await this.prisma.driver.delete({ where: { id } });
+  return { ok: true };
+}
+
+  async updateDriver(id: string, dto: UpdateDriverDto) {
+  const existing = await this.prisma.driver.findUnique({ where: { id } });
+  if (!existing) throw new NotFoundException("Driver not found");
+
+  // Basic sanity
+  if (dto.workDayStartHour != null && dto.workDayEndHour != null) {
+    if (dto.workDayStartHour >= dto.workDayEndHour) {
+      throw new BadRequestException("workDayStartHour must be < workDayEndHour");
+    }
+  }
+
+  const data: Prisma.DriverUpdateInput = {
+    ...(dto.code !== undefined ? { code: dto.code?.trim().toUpperCase() } : {}),
+    ...(dto.name !== undefined ? { name: dto.name } : {}),
+    ...(dto.email !== undefined ? { email: dto.email } : {}),
+    ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
+
+    ...(dto.vehicleType !== undefined ? { vehicleType: dto.vehicleType as VehicleType } : {}),
+    ...(dto.vehiclePlate !== undefined ? { vehiclePlate: dto.vehiclePlate } : {}),
+
+    ...(dto.primaryRegion !== undefined ? { primaryRegion: dto.primaryRegion as RegionCode } : {}),
+    ...(dto.secondaryRegions !== undefined ? { secondaryRegions: dto.secondaryRegions as RegionCode[] } : {}),
+
+    ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+    ...(dto.maxJobsPerDay !== undefined ? { maxJobsPerDay: dto.maxJobsPerDay } : {}),
+    ...(dto.maxJobsPerSlot !== undefined ? { maxJobsPerSlot: dto.maxJobsPerSlot } : {}),
+    ...(dto.workDayStartHour !== undefined ? { workDayStartHour: dto.workDayStartHour } : {}),
+    ...(dto.workDayEndHour !== undefined ? { workDayEndHour: dto.workDayEndHour } : {}),
+    ...(dto.notes !== undefined ? { notes: dto.notes?.trim() || null } : {}),
+  };
+
+  return this.prisma.driver.update({
+    where: { id },
+    data,
+  });
+}
   async getJobDetail(jobId: string): Promise<AdminJobDetailResponse> {
     const job = await this.prisma.job.findUnique({
       where: { id: jobId },
@@ -445,6 +774,7 @@ export class AdminService {
   async createJobFromBooking(dto: CreateBookingDto) {
     const pickupDate = new Date(dto.pickupDate);
     const publicId = this.generatePublicId(pickupDate);
+    const stopsCount = dto.stops?.length ?? 0;
 
     return this.prisma.$transaction(async (tx) => {
       // 1. Create Job
@@ -467,6 +797,7 @@ export class AdminService {
               ? dto.totalBillableWeightKg
               : 0,
           source: 'public-booking',
+          stopsCount,
         },
       });
 
@@ -583,3 +914,4 @@ export class AdminService {
     return updated;
   }
 }
+

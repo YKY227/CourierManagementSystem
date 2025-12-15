@@ -10,6 +10,14 @@ import type {
   ScheduleInfo,
 } from "./booking-store";
 
+export type {
+  ServiceType,
+  RouteType,
+  PickupLocation,
+  DeliveryPoint,
+  DeliveryItem,
+  ScheduleInfo,
+} from "./booking-store";
 /**
  * How the job was created.
  * Helpful later for analytics / behaviour differences.

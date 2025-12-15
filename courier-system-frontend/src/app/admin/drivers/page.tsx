@@ -1,17 +1,22 @@
 // src/app/admin/drivers/page.tsx
 "use client";
 
-import { useState } from "react";
-import { Driver, RegionCode, VehicleType } from "@/lib/types";
+import React, { useEffect, useMemo, useState } from "react";
+import type { Driver, RegionCode, VehicleType } from "@/lib/types";
+import { mockDrivers, REGION_LABELS, VEHICLE_LABELS } from "@/lib/mock/drivers";
+import { fetchAdminDrivers, updateDriverOnBackend } from "@/lib/api/drivers";
 import {
-  mockDrivers,
-  REGION_LABELS,
-  VEHICLE_LABELS,
-} from "@/lib/mock/drivers";
+  createAdminDriver,
+  deleteAdminDriver,
+  setAdminDriverPin,
+  resetAdminDriverPin,
+} from "@/lib/api/admin";
+import { USE_BACKEND } from "@/lib/config";
+import { useDemoData } from "@/lib/use-demo-data";
 
 type FormMode = "create" | "edit";
-
 type EditableDriver = Omit<Driver, "id"> & { id?: string };
+type DriverRow = Driver & { __isMock?: boolean };
 
 const REGION_OPTIONS: RegionCode[] = [
   "central",
@@ -22,7 +27,8 @@ const REGION_OPTIONS: RegionCode[] = [
   "island-wide",
 ];
 
-const VEHICLE_OPTIONS: VehicleType[] = ["bike", "car", "van", "lorry", "other"];
+const VEHICLE_OPTIONS: VehicleType[] = ["bike", "car", "van", "lorry"];
+
 
 function emptyDriver(): EditableDriver {
   return {
@@ -44,63 +50,223 @@ function emptyDriver(): EditableDriver {
   };
 }
 
-export default function AdminDriversPage() {
-  const [drivers, setDrivers] = useState<Driver[]>(mockDrivers);
-  const [mode, setMode] = useState<FormMode | null>(null);
-  const [formState, setFormState] = useState<EditableDriver | null>(null);
+/**
+ * IMPORTANT:
+ * - Mock drivers must never share the same `id` with real drivers (React key collision).
+ * - Prefix mock IDs so they're always unique.
+ */
+function makeMockRows(): DriverRow[] {
+  return mockDrivers.map((d) => ({
+    ...(d as DriverRow),
+    id: `mock:${d.id}`,
+    __isMock: true,
+  }));
+}
 
-  const openCreate = () => {
-    setMode("create");
-    setFormState(emptyDriver());
+function isMockDriver(d: DriverRow | EditableDriver | Driver): boolean {
+  return (
+    Boolean((d as any).__isMock) ||
+    String((d as any).id ?? "").startsWith("mock:")
+  );
+}
+
+/**
+ * Backend Prisma RegionCode enum uses:
+ * - north_east
+ * - island_wide
+ * while frontend uses:
+ * - north-east
+ * - island-wide
+ */
+function toBackendRegionCode(r: RegionCode): string {
+  if (r === "north-east") return "north_east";
+  if (r === "island-wide") return "island_wide";
+  return r;
+}
+function toBackendVehicleType(v: VehicleType): string {
+  // If your Prisma enum uses lowercase (bike/car/van/lorry/other), keep as-is.
+  // If your Prisma enum uses uppercase, return v.toUpperCase().
+  return v;
+}
+
+function dedupeById<T extends { id: string }>(rows: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const r of rows) {
+    if (seen.has(r.id)) continue;
+    seen.add(r.id);
+    out.push(r);
+  }
+  return out;
+}
+
+function isSixDigitPin(pin: string) {
+  return /^\d{6}$/.test(pin);
+}
+
+function generateSixDigitPin() {
+  const n = Math.floor(Math.random() * 1_000_000);
+  return String(n).padStart(6, "0");
+}
+
+function suggestCodeFromId(id?: string) {
+  // deterministic, good enough for legacy “code empty” drivers
+  if (!id) return "DRV-001";
+  const clean = String(id)
+    .replace(/[^a-z0-9]/gi, "")
+    .toUpperCase();
+  const tail = clean.slice(-3).padStart(3, "0"); // keep human-friendly (3 digits)
+  return `DRV-${tail}`;
+}
+
+export default function AdminDriversPage() {
+  const { showDemoData } = useDemoData();
+
+  const [realDrivers, setRealDrivers] = useState<Driver[]>([]);
+  const [mode, setMode] = useState<FormMode | null>(null);
+  const [formState, setFormState] = useState<
+    (EditableDriver & { __isMock?: boolean }) | null
+  >(null);
+  const [saving, setSaving] = useState(false);
+  // Code edit UX (edit mode: not editable until admin clicks "Edit")
+  const [codeEditEnabled, setCodeEditEnabled] = useState(false);
+
+  // PIN UI state (NOT stored in Driver type, NOT sent in create/update payload)
+  const [pin, setPin] = useState("");
+  const [pinConfirm, setPinConfirm] = useState("");
+  const [showPin, setShowPin] = useState(false);
+
+  // Code lock + UX:
+  // - Backend rule: if code exists, it's permanently locked after creation.
+  // - UX rule: even if code is empty (legacy), in EDIT mode it's read-only until admin clicks "Edit".
+  const existingCode = mode === "edit" ? formState?.code ?? "" : "";
+  const isEditing = mode === "edit" && Boolean(formState?.id);
+  const hasCodeAlready = isEditing && Boolean(existingCode.trim());
+
+  const isCodeLocked = hasCodeAlready;
+
+  const codeInputDisabled =
+    mode === "create" ? false : isCodeLocked ? true : !codeEditEnabled;
+
+  const handleGenerateCode = () => {
+    const suggested = suggestCodeFromId(formState?.id);
+    setFormState((s) => (s ? { ...s, code: suggested } : s));
   };
 
-  const openEdit = (driver: Driver) => {
+  const resetPinUI = () => {
+    setPin("");
+    setPinConfirm("");
+    setShowPin(false);
+  };
+
+  // Load real drivers from backend
+  useEffect(() => {
+    if (!USE_BACKEND) {
+      setRealDrivers([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const data = await fetchAdminDrivers();
+        if (!cancelled) setRealDrivers(Array.isArray(data) ? data : []);
+      } catch (e) {
+        console.error("[AdminDriversPage] fetchAdminDrivers failed", e);
+        if (!cancelled) setRealDrivers([]);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const uniqueRealDrivers = useMemo(
+    () => dedupeById(realDrivers),
+    [realDrivers]
+  );
+
+  const visibleDrivers: DriverRow[] = useMemo(() => {
+    const mock = showDemoData ? makeMockRows() : [];
+    if (!USE_BACKEND) return mock;
+    return [...uniqueRealDrivers, ...mock];
+  }, [uniqueRealDrivers, showDemoData]);
+
+  const reloadDrivers = async () => {
+    if (!USE_BACKEND) return;
+    const data = await fetchAdminDrivers();
+    setRealDrivers(Array.isArray(data) ? data : []);
+  };
+
+  const openCreate = () => {
+    if (!USE_BACKEND) {
+      alert(
+        "Backend is disabled (USE_BACKEND=false). Turn on backend to create real drivers."
+      );
+      return;
+    }
+    setMode("create");
+    setFormState(emptyDriver());
+    setCodeEditEnabled(true); // ✅ allow typing on create
+    resetPinUI();
+  };
+
+  const openEdit = (driver: DriverRow) => {
+    if (isMockDriver(driver)) return;
+     console.log("[AdminDrivers] openEdit driver.code =", driver.code); // ✅ debug
     setMode("edit");
-    setFormState({ ...driver });
+    setFormState({
+      ...(driver as Driver),
+      code: driver.code ?? "", // ✅ keep controlled input
+    });
+    setCodeEditEnabled(false); // ✅ default read-only until admin clicks "Edit"
+    resetPinUI(); // PIN is set/reset explicitly; never show existing PIN
   };
 
   const closeForm = () => {
     setMode(null);
     setFormState(null);
+    setCodeEditEnabled(false);
+    resetPinUI();
   };
 
   const handleChange = (
-  e: React.ChangeEvent<
-    HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
-  >
-) => {
-  if (!formState) return;
+    e: React.ChangeEvent<
+      HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+    >
+  ) => {
+    if (!formState) return;
 
-  const target = e.target;
-  const { name, value } = target;
+    const target = e.target;
+    const { name, value } = target;
 
-  setFormState((prev) => {
-    if (!prev) return prev;
+    setFormState((prev) => {
+      if (!prev) return prev;
 
-    // ✅ Checkbox for isActive (only on input)
-    if (
-      name === "isActive" &&
-      target instanceof HTMLInputElement &&
-      target.type === "checkbox"
-    ) {
-      return { ...prev, isActive: target.checked };
-    }
+      // checkbox
+      if (
+        name === "isActive" &&
+        target instanceof HTMLInputElement &&
+        target.type === "checkbox"
+      ) {
+        return { ...prev, isActive: target.checked };
+      }
 
-    // ✅ Number inputs
-    if (
-      name === "maxJobsPerDay" ||
-      name === "maxJobsPerSlot" ||
-      name === "workDayStartHour" ||
-      name === "workDayEndHour"
-    ) {
-      return { ...prev, [name]: Number(value) || 0 };
-    }
+      // number fields
+      if (
+        name === "maxJobsPerDay" ||
+        name === "maxJobsPerSlot" ||
+        name === "workDayStartHour" ||
+        name === "workDayEndHour"
+      ) {
+        return { ...prev, [name]: Number(value) || 0 };
+      }
 
-    // ✅ Everything else (text, email, select, textarea)
-    return { ...prev, [name]: value };
-  });
-};
-
+      return { ...prev, [name]: value };
+    });
+  };
 
   const toggleSecondaryRegion = (region: RegionCode) => {
     if (!formState) return;
@@ -117,11 +283,46 @@ export default function AdminDriversPage() {
     });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleResetPinRow = async (driver: DriverRow) => {
+    if (!USE_BACKEND) return;
+    if (isMockDriver(driver)) return;
+
+    if (!driver.code?.trim()) {
+      alert(
+        "This driver has no Driver Code. Set a code first (e.g. DRV-001) before resetting PIN."
+      );
+      return;
+    }
+
+    const newPin = generateSixDigitPin();
+
+    const ok = confirm(
+      `Reset PIN for ${driver.name} (${driver.code})?\n\nNew PIN will be: ${newPin}\n\n(You should share it securely. PIN won’t be shown again.)`
+    );
+    if (!ok) return;
+
+    try {
+      await resetAdminDriverPin(driver.id, newPin);
+      await reloadDrivers();
+
+      alert(
+        `✅ PIN reset successful.\n\nDriver: ${driver.name}\nCode: ${driver.code}\nNEW PIN: ${newPin}\n\n(Please share securely. PIN will not be shown again.)`
+      );
+    } catch (e) {
+      console.error("Reset PIN failed", e);
+      alert("Failed to reset PIN. Check backend logs.");
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formState) return;
 
-    // Simple required validation
+    if (isMockDriver(formState)) {
+      alert("Mock drivers are read-only. (Demo data is predefined)");
+      return;
+    }
+
     if (!formState.name || !formState.email || !formState.phone) {
       alert("Name, email, and phone are required.");
       return;
@@ -132,43 +333,176 @@ export default function AdminDriversPage() {
       return;
     }
 
-    const now = Date.now();
-
-    if (mode === "create") {
-      const newDriver: Driver = {
-        ...(formState as Driver),
-        id: `drv-${now}`,
-        code: formState.code || `DRV-${drivers.length + 1}`.padStart(7, "0"),
-      };
-      setDrivers((prev) => [...prev, newDriver]);
-    } else if (mode === "edit" && formState.id) {
-      setDrivers((prev) =>
-        prev.map((d) => (d.id === formState.id ? (formState as Driver) : d))
-      );
+    if (!USE_BACKEND) {
+      alert("Backend is disabled (USE_BACKEND=false).");
+      return;
     }
 
-    closeForm();
+    const wantsToSetPin = pin.trim().length > 0 || pinConfirm.trim().length > 0;
+
+    // Create: require code + PIN
+    if (mode === "create") {
+      if (!formState.code?.trim()) {
+        alert(
+          "Driver code is required for Driver Code + PIN login (e.g. DRV-001)."
+        );
+        return;
+      }
+      if (!wantsToSetPin) {
+        alert("PIN is required for new drivers. Please set a 6-digit PIN.");
+        return;
+      }
+    }
+
+    // If admin typed PIN fields (create or edit): validate
+    if (wantsToSetPin) {
+      if (!formState.code?.trim()) {
+        alert("Driver code is required if you want to set a login PIN.");
+        return;
+      }
+      if (!isSixDigitPin(pin.trim())) {
+        alert("PIN must be exactly 6 digits.");
+        return;
+      }
+      if (pin.trim() !== pinConfirm.trim()) {
+        alert("PIN and Confirm PIN do not match.");
+        return;
+      }
+    }
+
+        const normalizedCode = formState.code?.trim().toUpperCase() || undefined;
+
+    const primaryRegionBackend = toBackendRegionCode(formState.primaryRegion);
+    const secondaryRegionsBackend = (formState.secondaryRegions ?? []).map(toBackendRegionCode);
+    const vehicleBackend = toBackendVehicleType(formState.vehicleType);
+
+
+    setSaving(true);
+    try {
+      if (mode === "create") {
+        const created = await createAdminDriver({
+          name: formState.name,
+          email: formState.email,
+          phone: formState.phone,
+          code: normalizedCode,
+          primaryRegion: primaryRegionBackend as any,
+          secondaryRegions: secondaryRegionsBackend as any,
+          vehicleType: vehicleBackend as any,
+          isActive: formState.isActive,
+          maxJobsPerDay: formState.maxJobsPerDay,
+          maxJobsPerSlot: formState.maxJobsPerSlot,
+          workDayStartHour: formState.workDayStartHour,
+          workDayEndHour: formState.workDayEndHour,
+          notes: formState.notes?.trim() || undefined,
+        });
+
+        if (wantsToSetPin && created.id) {
+          await setAdminDriverPin(created.id, pin.trim());
+        }
+
+        await reloadDrivers();
+      } else if (mode === "edit" && formState.id) {
+        // Code-lock enforced: only send code if it was empty (legacy drivers)
+        const updatePayload: any = {
+          name: formState.name,
+          email: formState.email,
+          phone: formState.phone,
+          ...(isCodeLocked
+            ? {}
+            : { code: formState.code?.trim() || undefined }),
+          primaryRegion: primaryRegionBackend as any,
+          secondaryRegions: secondaryRegionsBackend as any,
+          vehicleType: vehicleBackend as any,
+          isActive: formState.isActive,
+          maxJobsPerDay: formState.maxJobsPerDay,
+          maxJobsPerSlot: formState.maxJobsPerSlot,
+          workDayStartHour: formState.workDayStartHour,
+          workDayEndHour: formState.workDayEndHour,
+          notes: formState.notes?.trim() || undefined,
+        };
+
+        await updateDriverOnBackend(formState.id, updatePayload);
+
+        if (wantsToSetPin) {
+          await setAdminDriverPin(formState.id, pin.trim());
+        }
+
+        await reloadDrivers();
+      }
+
+      closeForm();
+    } catch (err) {
+      console.error("Driver save failed", err);
+      alert("Failed to save driver / PIN. Check console + backend logs.");
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const toggleActive = (id: string) => {
-    setDrivers((prev) =>
-      prev.map((d) => (d.id === id ? { ...d, isActive: !d.isActive } : d))
-    );
+  const toggleActive = async (driver: DriverRow) => {
+    if (isMockDriver(driver)) return;
+    if (!USE_BACKEND) return;
+
+    try {
+      await updateDriverOnBackend(driver.id, {
+        isActive: !driver.isActive,
+      } as Partial<Driver>);
+      await reloadDrivers();
+    } catch (e) {
+      console.error("Toggle active failed", e);
+      alert("Failed to update driver status.");
+    }
   };
+
+  const handleDeleteDriver = async () => {
+    if (!formState?.id) return;
+    if (isMockDriver(formState)) return;
+    if (!USE_BACKEND) return;
+
+    const ok = confirm("Delete this driver? This cannot be undone.");
+    if (!ok) return;
+
+    setSaving(true);
+    try {
+      await deleteAdminDriver(formState.id);
+      await reloadDrivers();
+      closeForm();
+    } catch (e) {
+      console.error("Delete driver failed", e);
+      alert(
+        "Failed to delete driver. If driver has active jobs, unassign first."
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const activeCount = useMemo(
+    () => visibleDrivers.filter((d) => d.isActive && !isMockDriver(d)).length,
+    [visibleDrivers]
+  );
+
+  const mainRegionsCovered = useMemo(() => {
+    const regions = visibleDrivers
+      .filter((d) => !isMockDriver(d))
+      .map((d) => d.primaryRegion);
+    return Array.from(new Set(regions))
+      .map((r) => REGION_LABELS[r])
+      .join(", ");
+  }, [visibleDrivers]);
 
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="mx-auto max-w-6xl px-6 py-8">
         <header className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold text-slate-900">
-              Drivers
-            </h1>
+            <h1 className="text-2xl font-semibold text-slate-900">Drivers</h1>
             <p className="text-sm text-slate-600">
               Manage driver profiles, service regions, and capacity. These
               records will be used by the assignment engine and Driver PWA.
             </p>
           </div>
+
           <button
             type="button"
             onClick={openCreate}
@@ -185,25 +519,33 @@ export default function AdminDriversPage() {
               Total drivers
             </h2>
             <p className="mt-1 text-2xl font-semibold text-slate-900">
-              {drivers.length}
+              {visibleDrivers.length}
             </p>
+            {showDemoData && (
+              <p className="mt-1 text-[11px] text-slate-500">
+                Includes demo data (mock rows) in addition to real drivers.
+              </p>
+            )}
           </div>
+
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
               Active & assignable
             </h2>
             <p className="mt-1 text-2xl font-semibold text-emerald-700">
-              {drivers.filter((d) => d.isActive).length}
+              {activeCount}
+            </p>
+            <p className="mt-1 text-[11px] text-slate-500">
+              Mock drivers are excluded.
             </p>
           </div>
+
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
               Main regions covered
             </h2>
             <p className="mt-1 text-sm text-slate-800">
-              {Array.from(new Set(drivers.map((d) => d.primaryRegion)))
-                .map((r) => REGION_LABELS[r])
-                .join(", ")}
+              {mainRegionsCovered || "—"}
             </p>
           </div>
         </section>
@@ -233,91 +575,128 @@ export default function AdminDriversPage() {
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
-              {drivers.map((d) => (
-                <tr key={d.id} className="hover:bg-slate-50/60">
-                  <td className="px-4 py-3 align-top">
-                    <div className="font-medium text-slate-900">{d.name}</div>
-                    <div className="text-xs text-slate-600">{d.email}</div>
-                    <div className="text-xs text-slate-500">{d.phone}</div>
-                    {d.code && (
-                      <div className="mt-0.5 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
-                        {d.code}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 align-top text-xs text-slate-700">
-                    <div className="font-medium">
-                      {REGION_LABELS[d.primaryRegion]}
-                    </div>
-                    {d.secondaryRegions && d.secondaryRegions.length > 0 && (
-                      <div className="mt-0.5 text-slate-500">
-                        Also:{" "}
-                        {d.secondaryRegions
-                          .map((r) => REGION_LABELS[r])
-                          .join(", ")}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 align-top text-xs text-slate-700">
-                    {VEHICLE_LABELS[d.vehicleType]}
-                  </td>
-                  <td className="px-4 py-3 align-top text-xs text-slate-700">
-                    <div>
-                      Max/day:{" "}
-                      <span className="font-medium">
-                        {d.maxJobsPerDay}
-                      </span>
-                    </div>
-                    <div>
-                      Max/slot:{" "}
-                      <span className="font-medium">
-                        {d.maxJobsPerSlot}
-                      </span>
-                    </div>
-                    <div className="text-slate-500">
-                      Hours: {d.workDayStartHour}:00 – {d.workDayEndHour}:00
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 align-top">
-                    <span
-                      className={[
-                        "inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium",
-                        d.isActive
-                          ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                          : "bg-slate-100 text-slate-500 border border-slate-200",
-                      ].join(" ")}
-                    >
-                      {d.isActive ? "Active" : "Inactive"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 align-top text-right text-xs">
-                    <button
-                      type="button"
-                      onClick={() => openEdit(d)}
-                      className="mr-2 text-sky-600 hover:text-sky-700"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => toggleActive(d.id)}
-                      className="text-slate-500 hover:text-slate-700"
-                    >
-                      {d.isActive ? "Deactivate" : "Activate"}
-                    </button>
-                  </td>
-                </tr>
-              ))}
 
-              {drivers.length === 0 && (
+            <tbody className="divide-y divide-slate-100">
+              {visibleDrivers.map((d) => {
+                const mock = isMockDriver(d);
+
+                return (
+                  <tr key={d.id} className="hover:bg-slate-50/60">
+                    <td className="px-4 py-3 align-top">
+                      <div className="flex items-start gap-2">
+                        <div className="font-medium text-slate-900">
+                          {d.name}
+                        </div>
+                        {mock && (
+                          <span className="inline-flex rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700 ring-1 ring-rose-200">
+                            MOCK
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-slate-600">{d.email}</div>
+                      <div className="text-xs text-slate-500">{d.phone}</div>
+                      {d.code && (
+                        <div className="mt-0.5 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+                          {d.code}
+                        </div>
+                      )}
+                    </td>
+
+                    <td className="px-4 py-3 align-top text-xs text-slate-700">
+                      <div className="font-medium">
+                        {REGION_LABELS[d.primaryRegion]}
+                      </div>
+                      {d.secondaryRegions?.length ? (
+                        <div className="mt-0.5 text-slate-500">
+                          Also:{" "}
+                          {d.secondaryRegions
+                            .map((r) => REGION_LABELS[r])
+                            .join(", ")}
+                        </div>
+                      ) : null}
+                    </td>
+
+                    <td className="px-4 py-3 align-top text-xs text-slate-700">
+                      {VEHICLE_LABELS[d.vehicleType]}
+                    </td>
+
+                    <td className="px-4 py-3 align-top text-xs text-slate-700">
+                      <div>
+                        Max/day:{" "}
+                        <span className="font-medium">{d.maxJobsPerDay}</span>
+                      </div>
+                      <div>
+                        Max/slot:{" "}
+                        <span className="font-medium">{d.maxJobsPerSlot}</span>
+                      </div>
+                      <div className="text-slate-500">
+                        Hours: {d.workDayStartHour}:00 – {d.workDayEndHour}:00
+                      </div>
+                    </td>
+
+                    <td className="px-4 py-3 align-top">
+                      <span
+                        className={[
+                          "inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium border",
+                          d.isActive
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                            : "bg-slate-100 text-slate-500 border-slate-200",
+                        ].join(" ")}
+                      >
+                        {d.isActive ? "Active" : "Inactive"}
+                      </span>
+                    </td>
+
+                    <td className="px-4 py-3 align-top text-right text-xs">
+                      <button
+                        type="button"
+                        onClick={() => openEdit(d)}
+                        className={[
+                          "mr-2",
+                          mock
+                            ? "text-slate-300 cursor-not-allowed"
+                            : "text-sky-600 hover:text-sky-700",
+                        ].join(" ")}
+                        disabled={mock}
+                      >
+                        Edit
+                      </button>
+
+                      {!mock && (
+                        <button
+                          type="button"
+                          onClick={() => handleResetPinRow(d)}
+                          className="mr-2 text-amber-700 hover:text-amber-800"
+                        >
+                          Reset PIN
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => toggleActive(d)}
+                        className={[
+                          mock
+                            ? "text-slate-300 cursor-not-allowed"
+                            : "text-slate-500 hover:text-slate-700",
+                        ].join(" ")}
+                        disabled={mock}
+                      >
+                        {d.isActive ? "Deactivate" : "Activate"}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+
+              {visibleDrivers.length === 0 && (
                 <tr>
                   <td
                     colSpan={6}
                     className="px-4 py-6 text-center text-xs text-slate-500"
                   >
-                    No drivers yet. Click &quot;Add driver&quot; to create
-                    your first one.
+                    No drivers to show. Turn on backend to load real drivers,
+                    and optionally enable Demo Mode to append mock drivers.
                   </td>
                 </tr>
               )}
@@ -340,6 +719,7 @@ export default function AdminDriversPage() {
                   capacity calculation.
                 </p>
               </div>
+
               <button
                 type="button"
                 onClick={closeForm}
@@ -381,6 +761,7 @@ export default function AdminDriversPage() {
                     placeholder="name@example.com"
                   />
                 </div>
+
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-slate-700">
                     Phone <span className="text-red-500">*</span>
@@ -395,21 +776,181 @@ export default function AdminDriversPage() {
                 </div>
               </div>
 
+              {/* Code locked after creation */}
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-slate-700">
-                  Internal driver code
+                  Driver code <span className="text-red-500">*</span>
                 </label>
-                <input
-                  name="code"
-                  value={formState.code ?? ""}
-                  onChange={handleChange}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                  placeholder="e.g. DRV-001"
-                />
+
+                <div className="flex gap-2">
+                  <input
+                    name="code"
+                    value={formState.code ?? ""}
+                    onChange={handleChange}
+                    disabled={codeInputDisabled}
+                    className={[
+                      "w-full rounded-lg border px-3 py-2 text-sm",
+                      codeInputDisabled
+                        ? "bg-slate-50 text-slate-500"
+                        : "border-slate-200",
+                    ].join(" ")}
+                    placeholder="e.g. DRV-001"
+                  />
+
+                  {isCodeLocked ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        navigator.clipboard.writeText(formState.code ?? "")
+                      }
+                      className="rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50"
+                      title="Copy code"
+                    >
+                      Copy
+                    </button>
+                  ) : codeEditEnabled ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleGenerateCode}
+                        className="rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50"
+                        title="Suggest code from Driver ID"
+                      >
+                        Suggest
+                      </button>
+
+                      {mode === "edit" && (
+                        <button
+                          type="button"
+                          onClick={() => setCodeEditEnabled(false)}
+                          className="rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50"
+                          title="Stop editing code"
+                        >
+                          Done
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setCodeEditEnabled(true)}
+                      className="rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50"
+                      title="Enable editing for legacy empty code"
+                    >
+                      Edit
+                    </button>
+                  )}
+                </div>
+
                 <p className="text-[10px] text-slate-500">
-                  Optional – used for internal reference on the ops side.
+                  Used for Driver login (Code + PIN).
+                  {isCodeLocked ? (
+                    <span className="ml-1 text-slate-600">
+                      Code is locked after creation.
+                    </span>
+                  ) : (
+                    <span className="ml-1 text-slate-600">
+                      If empty (legacy driver), set it once.
+                    </span>
+                  )}
                 </p>
               </div>
+
+              {/* ✅ PIN (Option B) */}
+              {!isMockDriver(formState) && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-semibold text-slate-800">
+                        Login PIN (6 digits){" "}
+                        {mode === "create" ? (
+                          <span className="text-rose-700">*</span>
+                        ) : null}
+                      </div>
+                      <p className="mt-0.5 text-[11px] text-slate-600">
+                        {mode === "create"
+                          ? "Required for new drivers. PIN is set after driver is created."
+                          : "Optional. Leave blank to keep current PIN. To change, enter a new PIN + confirm."}
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const p = generateSixDigitPin();
+                        setPin(p);
+                        setPinConfirm(p);
+                      }}
+                      className="shrink-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
+                    >
+                      Generate
+                    </button>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-medium text-slate-700">
+                        New PIN
+                      </label>
+                      <input
+                        value={pin}
+                        onChange={(e) => setPin(e.target.value)}
+                        inputMode="numeric"
+                        pattern="\d*"
+                        maxLength={6}
+                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                        type={showPin ? "text" : "password"}
+                        placeholder="6 digits"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-medium text-slate-700">
+                        Confirm
+                      </label>
+                      <input
+                        value={pinConfirm}
+                        onChange={(e) => setPinConfirm(e.target.value)}
+                        inputMode="numeric"
+                        pattern="\d*"
+                        maxLength={6}
+                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                        type={showPin ? "text" : "password"}
+                        placeholder="repeat"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-2 flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setShowPin((v) => !v)}
+                      className="text-[11px] text-slate-600 hover:text-slate-800"
+                    >
+                      {showPin ? "Hide" : "Show"}
+                    </button>
+
+                    <div className="text-[11px] text-slate-500">
+                      {pin || pinConfirm ? (
+                        !isSixDigitPin(pin.trim()) ? (
+                          <span className="text-rose-700">
+                            PIN must be 6 digits
+                          </span>
+                        ) : pin.trim() !== pinConfirm.trim() ? (
+                          <span className="text-rose-700">PIN mismatch</span>
+                        ) : (
+                          <span className="text-emerald-700">
+                            PIN looks good
+                          </span>
+                        )
+                      ) : mode === "create" ? (
+                        <span className="text-rose-700">PIN required</span>
+                      ) : (
+                        "Leave blank to keep unchanged"
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Regions & vehicle */}
               <div className="space-y-1.5">
@@ -542,10 +1083,7 @@ export default function AdminDriversPage() {
                   onChange={handleChange}
                   className="h-4 w-4 rounded border-slate-300 text-sky-600"
                 />
-                <label
-                  htmlFor="isActive"
-                  className="text-xs text-slate-700"
-                >
+                <label htmlFor="isActive" className="text-xs text-slate-700">
                   Active & eligible for auto-assignment
                 </label>
               </div>
@@ -565,19 +1103,41 @@ export default function AdminDriversPage() {
               </div>
 
               <div className="flex items-center justify-between border-t border-slate-200 pt-3">
-                <button
-                  type="button"
-                  onClick={closeForm}
-                  className="text-xs text-slate-600 hover:text-slate-800"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="inline-flex items-center rounded-lg bg-sky-600 px-4 py-2 text-xs font-medium text-white hover:bg-sky-700"
-                >
-                  {mode === "create" ? "Create driver" : "Save changes"}
-                </button>
+                <div>
+                  {mode === "edit" && (
+                    <button
+                      type="button"
+                      onClick={handleDeleteDriver}
+                      disabled={saving}
+                      className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700 hover:bg-rose-100 disabled:opacity-60"
+                    >
+                      Delete driver
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={closeForm}
+                    className="text-xs text-slate-600 hover:text-slate-800"
+                    disabled={saving}
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="inline-flex items-center rounded-lg bg-sky-600 px-4 py-2 text-xs font-medium text-white hover:bg-sky-700 disabled:opacity-60"
+                  >
+                    {saving
+                      ? "Saving..."
+                      : mode === "create"
+                      ? "Create driver"
+                      : "Save changes"}
+                  </button>
+                </div>
               </div>
             </form>
           </div>

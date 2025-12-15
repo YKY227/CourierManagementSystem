@@ -3,13 +3,15 @@
 
 import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
-
+import { fetchAdminJobsPaged } from "@/lib/api/admin";
 import type { JobSummary } from "@/lib/types";
 import {
   fetchAdminJobs,
   fetchAdminCompletedJobDetail,
   type AdminJobDetailDto,
 } from "@/lib/api/admin";
+import { JobDetailModal } from "@/components/admin/JobDetailModal";
+
 
 function regionLabel(region: string) {
   switch (region) {
@@ -87,24 +89,47 @@ export default function CompletedJobsPage() {
   const [detail, setDetail] = useState<AdminJobDetailDto | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const PAGE_SIZE = 50;
+
+const [total, setTotal] = useState(0);
+const [page, setPage] = useState(1);
+
 
   // 🔹 Fetch completed jobs from backend once on mount
   useEffect(() => {
-    async function load() {
-      setJobsLoading(true);
-      setJobsError(null);
-      try {
-        const jobs = await fetchAdminJobs("completed"); // hits /api/backend/admin/jobs?status=completed
-        setCompletedJobs(jobs);
-      } catch (e: any) {
-        console.error("[CompletedJobsPage] Failed to load completed jobs", e);
-        setJobsError(e?.message ?? "Failed to load completed jobs");
-      } finally {
-        setJobsLoading(false);
-      }
+  let cancelled = false;
+
+  async function load() {
+    setJobsLoading(true);
+    setJobsError(null);
+    try {
+      const res = await fetchAdminJobsPaged({
+        status: "completed",
+        page,
+        pageSize: PAGE_SIZE,
+      });
+
+      if (cancelled) return;
+
+      setCompletedJobs(res.data as JobSummary[]);
+      setTotal(res.total);
+    } catch (e: any) {
+      console.error("[CompletedJobsPage] Failed to load completed jobs", e);
+      if (cancelled) return;
+      setJobsError(e?.message ?? "Failed to load completed jobs");
+      setCompletedJobs([]);
+      setTotal(0);
+    } finally {
+      if (!cancelled) setJobsLoading(false);
     }
-    load();
-  }, []);
+  }
+
+  load();
+  return () => {
+    cancelled = true;
+  };
+}, [page]);
+
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -117,7 +142,9 @@ export default function CompletedJobsPage() {
     );
   }, [completedJobs, search]);
 
-  const top5 = filtered.slice(0, 5);
+  const safeFiltered = Array.isArray(filtered) ? filtered : [];
+const top5 = safeFiltered.slice(0, 5);
+
 
   const handleOpenDetail = async (job: JobSummary) => {
     setSelectedJobId(job.id);
@@ -384,176 +411,14 @@ export default function CompletedJobsPage() {
       </div>
 
       {/* Detail modal */}
-      {selectedJobId && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-3xl rounded-xl bg-white p-5 shadow-xl">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-900">
-                Job details &amp; proof of delivery
-              </h2>
-              <button
-                type="button"
-                onClick={handleCloseDetail}
-                className="text-[11px] text-slate-500 hover:text-slate-800"
-              >
-                Close ✕
-              </button>
-            </div>
+      <JobDetailModal
+  open={!!selectedJobId}
+  detail={detail}
+  loading={detailLoading}
+  error={detailError}
+  onClose={handleCloseDetail}
+/>
 
-            {detailLoading && (
-              <p className="text-xs text-slate-500">Loading details…</p>
-            )}
-            {detailError && (
-              <p className="text-xs text-red-600">{detailError}</p>
-            )}
-
-            {detail && (
-              <div className="grid gap-4 md:grid-cols-2">
-                {/* Summary + stops */}
-                <div className="space-y-3">
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-[11px]">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-mono text-[11px] text-slate-700">
-                          {detail.job.publicId}
-                        </p>
-                        <p className="text-xs font-semibold text-slate-900">
-                          {detail.job.customerName}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        {statusBadge(detail.job.status as any)}
-                        <div className="mt-1 text-[10px] text-slate-500">
-                          {jobTypeBadge(detail.job.jobType as any)}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="mt-2 text-[11px] text-slate-600">
-                      <p>
-                        Pickup: {detail.job.pickupDate} ·{" "}
-                        {detail.job.pickupSlot}
-                      </p>
-                      <p>
-                        Region: {regionLabel(detail.job.pickupRegion)} ·{" "}
-                        {detail.job.stopsCount} stops
-                      </p>
-                      {detail.job.driverName && (
-                        <p className="mt-1">
-                          Driver: {detail.job.driverName}{" "}
-                          {detail.job.driverPhone && (
-                            <span className="text-slate-500">
-                              · {detail.job.driverPhone}
-                            </span>
-                          )}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="rounded-lg border border-slate-200 bg-white p-3 text-[11px]">
-                    <h3 className="mb-2 text-xs font-semibold text-slate-800">
-                      Route &amp; stops
-                    </h3>
-                    {detail.stops.length === 0 ? (
-                      <p className="text-[11px] text-slate-500">
-                        No stops recorded for this job.
-                      </p>
-                    ) : (
-                      <ol className="relative border-l border-slate-200 pl-4">
-                        {detail.stops
-                          .slice()
-                          .sort((a, b) => a.sequenceIndex - b.sequenceIndex)
-                          .map((stop) => (
-                            <li key={stop.id} className="mb-4 last:mb-0">
-                              <div className="absolute -left-[7px] mt-1.5 h-3.5 w-3.5 rounded-full border border-slate-300 bg-white" />
-                              <div className="ml-2">
-                                <p className="text-[10px] uppercase tracking-wide text-slate-500">
-                                  {stop.type.toUpperCase()} · Stop{" "}
-                                  {stop.sequenceIndex + 1}
-                                </p>
-                                <p className="text-[11px] font-semibold text-slate-900">
-                                  {stop.label}
-                                </p>
-                                <p className="text-[11px] text-slate-600">
-                                  {stop.addressLine}{" "}
-                                  {stop.postalCode &&
-                                    `· S(${stop.postalCode})`}
-                                </p>
-                                <p className="mt-0.5 text-[11px] text-slate-500">
-                                  {stop.contactName && (
-                                    <>
-                                      Contact: {stop.contactName}
-                                      {stop.contactPhone &&
-                                        ` · ${stop.contactPhone}`}
-                                    </>
-                                  )}
-                                </p>
-                                {stop.completedAt && (
-                                  <p className="mt-0.5 text-[10px] text-emerald-600">
-                                    Completed at{" "}
-                                    {new Date(
-                                      stop.completedAt,
-                                    ).toLocaleString()}
-                                  </p>
-                                )}
-                              </div>
-                            </li>
-                          ))}
-                      </ol>
-                    )}
-                  </div>
-                </div>
-
-                {/* Proof photos */}
-                <div className="rounded-lg border border-slate-200 bg-white p-3 text-[11px]">
-                  <h3 className="mb-2 text-xs font-semibold text-slate-800">
-                    Proof of delivery photos
-                  </h3>
-
-                  {detail.proofPhotos.length === 0 ? (
-                    <p className="text-[11px] text-slate-500">
-                      No proof photos were captured for this job.
-                    </p>
-                  ) : (
-                    <div className="grid grid-cols-3 gap-2">
-                      {detail.proofPhotos.map((photo) => (
-                        <button
-                          key={photo.id}
-                          type="button"
-                          onClick={() =>
-                            window.open(photo.url, "_blank", "noopener")
-                          }
-                          className="group relative"
-                        >
-                          <img
-                            src={photo.url}
-                            alt="Proof"
-                            className="h-20 w-full rounded-md border border-slate-200 object-cover group-hover:border-sky-500"
-                          />
-                          <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1 text-[9px] text-white">
-                            {new Date(photo.takenAt).toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {detail.proofPhotos.length > 0 && (
-                    <p className="mt-2 text-[10px] text-slate-500">
-                      Click any thumbnail to open the full-size image in a new
-                      tab. In a future iteration, this can be replaced with a
-                      lightbox viewer.
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

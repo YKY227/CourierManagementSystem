@@ -1,42 +1,41 @@
-// src/admin/dto/update-driver.dto.ts
-
-import { RegionCode } from '../../../generated/prisma/client';
-
-
-
+// courier-system-backend/src/admin/dto/update-driver.dto.ts
 import {
   IsArray,
-  IsEnum,
   IsBoolean,
-  IsNumber,
+  IsEmail,
+  IsEnum,
+  IsInt,
   IsOptional,
   IsString,
-} from 'class-validator';
+  Max,
+  Min,
+} from "class-validator";
+import { RegionCode, VehicleType } from '../../../generated/prisma/client';
 
 export class UpdateDriverDto {
   @IsOptional()
-  @IsBoolean()
-  isActive?: boolean;
+  @IsString()
+  code?: string;
 
   @IsOptional()
   @IsString()
-  currentStatus?: 'offline' | 'available' | 'on_job';
+  name?: string;
 
   @IsOptional()
-  @IsNumber()
-  maxJobsPerDay?: number;
+  @IsEmail()
+  email?: string;
 
   @IsOptional()
-  @IsNumber()
-  maxJobsPerSlot?: number;
+  @IsString()
+  phone?: string;
 
   @IsOptional()
-  @IsNumber()
-  workDayStartHour?: number;
+  @IsEnum(VehicleType)
+  vehicleType?: VehicleType;
 
   @IsOptional()
-  @IsNumber()
-  workDayEndHour?: number;
+  @IsString()
+  vehiclePlate?: string | null;
 
   @IsOptional()
   @IsEnum(RegionCode)
@@ -48,12 +47,32 @@ export class UpdateDriverDto {
   secondaryRegions?: RegionCode[];
 
   @IsOptional()
-  @IsNumber()
-  locationLat?: number;
+  @IsBoolean()
+  isActive?: boolean;
 
   @IsOptional()
-  @IsNumber()
-  locationLng?: number;
+  @IsInt()
+  @Min(0)
+  @Max(999)
+  maxJobsPerDay?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(999)
+  maxJobsPerSlot?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(23)
+  workDayStartHour?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(23)
+  workDayEndHour?: number;
 
   @IsOptional()
   @IsString()

@@ -1,6 +1,7 @@
+//src/lib/unified-jobs-store.ts
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import type {
   Job,
   JobSummary,
@@ -25,14 +26,14 @@ import { uploadProofPhotoOnBackend, type ProofPhotoDto } from "@/lib/api/driver"
 import { defaultAssignmentConfig } from "@/lib/types";
 import { mockJobs } from "@/lib/mock/jobs";
 import { mockDrivers } from "@/lib/mock/drivers";
-
+import { getDriverToken, clearDriverToken } from "@/lib/driver-auth";
 // 🔹 NEW: config + backend API for admin jobs
-import { USE_BACKEND } from "@/lib/config";
+import { USE_BACKEND, API_BASE_URL } from "@/lib/config";
 //import { fetchAdminJobs } from "@/app/api/admin";
-import { fetchAdminJobs, assignJobOnBackend } from "@/lib/api/admin";
+import { fetchAdminJobsPaged, assignJobOnBackend } from "@/lib/api/admin";
 import { fetchAdminDrivers } from "@/lib/api/drivers";
 import { scoreDriversForJob, pickBestDriver } from "@/lib/assignment";
-
+import { useAppSettings } from "@/lib/app-settings";
 // ─────────────────────────────────────────────
 // OFFLINE DRIVER ACTIONS
 // ─────────────────────────────────────────────
@@ -359,6 +360,9 @@ export interface UnifiedJobsState {
 
   pendingActions: PendingAction[];
   loaded: boolean;
+    driverJobsLoading: boolean;
+  refreshDriverJobs: () => Promise<void>;
+
 
   setDrivers: (drivers: Driver[]) => void;
   updateDriver: (id: string, updates: Partial<Driver>) => void;
@@ -399,7 +403,18 @@ export function useUnifiedJobs(): UnifiedJobsState {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [pendingActions, setPendingActions] = useState<PendingAction[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const demoMode = useAppSettings((s) => s.demoMode);
+    const [driverJobsLoading, setDriverJobsLoading] = useState(false);
+const driverJobsRefreshInFlight = useRef<Promise<void> | null>(null);
+const isMountedRef = useRef(true);
 
+
+useEffect(() => {
+  isMountedRef.current = true;
+  return () => {
+    isMountedRef.current = false;
+  };
+}, []);
   // ─────────────────────────────────────────────
   // Load from storage OR from backend / mocks
   // ─────────────────────────────────────────────
@@ -411,10 +426,8 @@ export function useUnifiedJobs(): UnifiedJobsState {
     const init = async () => {
       try {
         console.log("[UnifiedJobs] USE_BACKEND =", USE_BACKEND);
-    console.log(
-      "[UnifiedJobs] BACKEND_BASE =",
-      process.env.NEXT_PUBLIC_BACKEND_BASE_URL,
-    );
+    console.log("[UnifiedJobs] USE_BACKEND =", USE_BACKEND);
+console.log("[UnifiedJobs] API_BASE_URL =", API_BASE_URL);
         if (raw) {
           const parsed = JSON.parse(raw) as PersistedState;
 
@@ -440,18 +453,32 @@ export function useUnifiedJobs(): UnifiedJobsState {
           let initialSummaries: JobSummary[];
 
           if (USE_BACKEND) {
-            const apiJobs = await fetchAdminJobs();
-            initialSummaries = apiJobs.map((job, idx) => ({
-              ...job,
-              // if backend doesn't provide pickupDate, or for demo you want a few "today"
-              pickupDate: job.pickupDate || today,
-            }));
-          } else {
-            initialSummaries = mockJobs.map((job, idx) => ({
-              ...job,
-              pickupDate: idx < 3 ? today : job.pickupDate,
-            }));
-          }
+  // Bootstrap: fetch a small slice from each status (paged endpoint)
+  const pageSize = 50;
+
+  const [pendingRes, activeRes, completedRes] = await Promise.all([
+    fetchAdminJobsPaged({ status: "pending", page: 1, pageSize }),
+    fetchAdminJobsPaged({ status: "active", page: 1, pageSize }),
+    fetchAdminJobsPaged({ status: "completed", page: 1, pageSize }),
+  ]);
+
+  const combined = [
+    ...pendingRes.data,
+    ...activeRes.data,
+    ...completedRes.data,
+  ] as JobSummary[];
+
+  initialSummaries = combined.map((job: JobSummary) => ({
+    ...job,
+    pickupDate: job.pickupDate || today,
+  }));
+} else {
+  initialSummaries = mockJobs.map((job: JobSummary, idx: number) => ({
+    ...job,
+    pickupDate: idx < 3 ? today : job.pickupDate,
+  }));
+}
+
 
           const initialJobs = bootstrapJobsFromSummaries(initialSummaries);
 
@@ -712,6 +739,64 @@ export function useUnifiedJobs(): UnifiedJobsState {
     [recomputeDriverAssignmentCounts]
   );
 
+    // ─────────────────────────────────────────────
+  // Driver PWA: Refresh jobs from backend (JWT)
+  // ─────────────────────────────────────────────
+  const refreshDriverJobs = useCallback(async () => {
+  if (!USE_BACKEND) return;
+
+  // ✅ don’t even hit backend if driver token doesn’t exist
+  const token = getDriverToken();
+  if (!token) {
+    console.warn("[UnifiedJobs] refreshDriverJobs skipped: missing token");
+    return;
+  }
+
+  // ✅ de-dupe / lock: if a refresh is already running, reuse it
+  if (driverJobsRefreshInFlight.current) {
+    return driverJobsRefreshInFlight.current;
+  }
+
+  const run = (async () => {
+    if (isMountedRef.current) setDriverJobsLoading(true);
+
+    try {
+      // uses JWT automatically (fetchDriverJobs reads localStorage token)
+      const jobsFromBackend = await fetchDriverJobs();
+
+      // ✅ don’t update state if unmounted
+      if (isMountedRef.current) {
+        setDriverJobs(jobsFromBackend);
+      }
+    } catch (err: any) {
+      console.error("[UnifiedJobs] refreshDriverJobs failed", err);
+
+      // ✅ if token expired / unauthorized → hard logout + redirect
+      const msg = String(err?.message ?? "");
+      if (msg.includes("401") || msg.toLowerCase().includes("unauthorized")) {
+        clearDriverToken();
+        // (optional) also clear your store driverJobs if you want:
+        // if (isMountedRef.current) setDriverJobs([]);
+
+        if (typeof window !== "undefined") {
+          window.location.replace("/driver/login");
+        }
+        return;
+      }
+
+      // keep existing driverJobs (don’t wipe)
+      throw err;
+    } finally {
+      if (isMountedRef.current) setDriverJobsLoading(false);
+      driverJobsRefreshInFlight.current = null;
+    }
+  })();
+
+  driverJobsRefreshInFlight.current = run;
+  return run;
+}, []);
+
+
 
     // ─────────────────────────────────────────────
   // Driver PWA: Status Updates
@@ -884,6 +969,9 @@ export function useUnifiedJobs(): UnifiedJobsState {
     drivers,
     pendingActions,
     loaded,
+
+        driverJobsLoading,
+    refreshDriverJobs,
 
     setDrivers,
     updateDriver,

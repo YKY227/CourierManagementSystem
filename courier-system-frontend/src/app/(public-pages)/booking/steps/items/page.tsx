@@ -76,6 +76,8 @@ function ItemModal({
           widthCm: existingItem.widthCm,
           heightCm: existingItem.heightCm,
           remarks: existingItem.remarks ?? "",
+          // NEW:
+        specialHandling: existingItem.specialHandling ?? false,
         }
       : {
           description: "",
@@ -86,6 +88,7 @@ function ItemModal({
           widthCm: 0,
           heightCm: 0,
           remarks: "",
+          specialHandling: false,
         },
   });
 
@@ -108,6 +111,7 @@ function ItemModal({
       heightCm: data.heightCm,
       volumetricWeightKg: volWeight,
       remarks: data.remarks ?? "",
+      specialHandling: data.specialHandling ?? false,
     };
 
     onSave(updatedItem);
@@ -236,6 +240,24 @@ function ItemModal({
               className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
               placeholder="e.g. Fragile – handle with care, do not stack, keep upright…"
             />
+            {/* Special handling checkbox */}
+            <div className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                id="specialHandling"
+                {...register("specialHandling")}
+                className="mt-0.5 h-3 w-3 rounded border-slate-300 text-sky-600 
+                          focus:ring-sky-500"
+              />
+              <label
+                htmlFor="specialHandling"
+                className="text-[11px] text-slate-700"
+              >
+                Special handling required (e.g. temperature sensitive, fragile setup,
+                on-site unpacking). This may incur additional charges.
+              </label>
+            </div>
+
           </FormField>
 
           {/* Buttons */}
@@ -393,6 +415,15 @@ export default function ItemsStep() {
                               {item.volumetricWeightKg || 0} kg · Billable:{" "}
                               {billable || 0} kg
                             </p>
+
+                            {/* ✅ Special handling badge goes here */}
+                            {item.specialHandling && (
+                              <p className="text-[11px] text-amber-700">
+                                ⚠ Special handling required
+                              </p>
+                            )}
+
+
                             {item.remarks && (
                               <p className="text-[11px] text-slate-500">
                                 Remarks: {item.remarks}

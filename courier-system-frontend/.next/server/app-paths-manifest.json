@@ -1,13 +1,9 @@
 {
-  "/api/backend/admin/jobs/route": "app/api/backend/admin/jobs/route.js",
-  "/(public-pages)/page": "app/(public-pages)/page.js",
+  "/_not-found/page": "app/_not-found/page.js",
   "/admin/jobs/page": "app/admin/jobs/page.js",
-  "/admin/jobs/completed/page": "app/admin/jobs/completed/page.js",
-  "/(public-pages)/booking/steps/delivery-type/page": "app/(public-pages)/booking/steps/delivery-type/page.js",
-  "/(public-pages)/booking/steps/route-type/page": "app/(public-pages)/booking/steps/route-type/page.js",
-  "/(public-pages)/booking/steps/pickup/page": "app/(public-pages)/booking/steps/pickup/page.js",
-  "/(public-pages)/booking/steps/deliveries/page": "app/(public-pages)/booking/steps/deliveries/page.js",
-  "/(public-pages)/booking/steps/items/page": "app/(public-pages)/booking/steps/items/page.js",
-  "/(public-pages)/booking/steps/schedule/page": "app/(public-pages)/booking/steps/schedule/page.js",
-  "/(public-pages)/booking/steps/summary/page": "app/(public-pages)/booking/steps/summary/page.js"
+  "/(public-pages)/tracking/[jobId]/page": "app/(public-pages)/tracking/[jobId]/page.js",
+  "/(public-pages)/page": "app/(public-pages)/page.js",
+  "/(public-pages)/booking/steps/summary/page": "app/(public-pages)/booking/steps/summary/page.js",
+  "/(public-pages)/booking/steps/payment/page": "app/(public-pages)/booking/steps/payment/page.js",
+  "/(public-pages)/booking/steps/confirmation/page": "app/(public-pages)/booking/steps/confirmation/page.js"
 }
