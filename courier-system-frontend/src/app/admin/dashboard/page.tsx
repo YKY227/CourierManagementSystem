@@ -4,14 +4,7 @@
 import { useMemo } from "react";
 import { useUnifiedJobs } from "@/lib/unified-jobs-store";
 import { mockDrivers, REGION_LABELS } from "@/lib/mock/drivers";
-import type {
-  JobSummary,
-  JobStatus,
-  JobType,
-  Driver,
-  DriverStatus,
-  RegionCode,
-} from "@/lib/types";
+import type { JobSummary, JobStatus, JobType, RegionCode } from "@/lib/types";
 
 // Helper: group jobs by status
 function countByStatus(jobs: JobSummary[], status: JobStatus): number {
@@ -40,34 +33,31 @@ const SLOT_LABELS: Record<SlotKey, string> = {
 
 // utilisation: 0–1
 const mockDriverCapacity: Record<string, Record<SlotKey, number>> = {
-  "drv-1": {
-    morning: 0.6, // green
-    midday: 0.85, // amber
-    late: 0.3, // green
-  },
-  "drv-2": {
-    morning: 0.4,
-    midday: 0.7,
-    late: 0.95, // red
-  },
-  "drv-3": {
-    morning: 0.1,
-    midday: 0.2,
-    late: 0.1,
-  },
+  "drv-1": { morning: 0.6, midday: 0.85, late: 0.3 },
+  "drv-2": { morning: 0.4, midday: 0.7, late: 0.95 },
+  "drv-3": { morning: 0.1, midday: 0.2, late: 0.1 },
 };
 
 function capacityBarClass(utilisation: number): string {
-  if (utilisation >= 0.9) {
-    return "bg-red-500";
-  }
-  if (utilisation >= 0.7) {
-    return "bg-amber-400";
-  }
+  if (utilisation >= 0.9) return "bg-red-500";
+  if (utilisation >= 0.7) return "bg-amber-400";
   return "bg-emerald-400";
 }
 
-function formatStatusLabel(status: DriverStatus): string {
+// ✅ Use a safe internal status union for UI (works even if mock has extra/undefined values)
+type DriverStatusKey = "online" | "offline" | "break" | "unavailable" | "unknown";
+
+function normalizeDriverStatus(input?: string | null): DriverStatusKey {
+  if (!input) return "unknown";
+  const s = String(input).toLowerCase();
+  if (s === "online") return "online";
+  if (s === "offline") return "offline";
+  if (s === "break") return "break";
+  if (s === "unavailable") return "unavailable";
+  return "unknown";
+}
+
+function formatStatusLabel(status: DriverStatusKey): string {
   switch (status) {
     case "online":
       return "Online";
@@ -78,13 +68,14 @@ function formatStatusLabel(status: DriverStatus): string {
     case "unavailable":
       return "Unavailable";
     default:
-      return status;
+      return "Unknown";
   }
 }
 
-function formatDateTimeShort(iso: string): string {
+function formatDateTimeShort(iso?: string | null): string {
+  if (!iso) return "—";
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "Unknown";
+  if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleString("en-SG", {
     day: "2-digit",
     month: "short",
@@ -93,13 +84,15 @@ function formatDateTimeShort(iso: string): string {
   });
 }
 
+function regionLabel(region?: string | null): string {
+  const key = (region ?? "island-wide") as RegionCode;
+  return REGION_LABELS[key] ?? "—";
+}
+
 export default function AdminDashboardPage() {
   const { jobSummaries: jobs, loaded } = useUnifiedJobs();
 
-  const today = useMemo(
-    () => new Date().toISOString().slice(0, 10),
-    []
-  );
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
   // Basic counts
   const {
@@ -114,16 +107,16 @@ export default function AdminDashboardPage() {
     const totalJobs = jobs.length;
     const pendingCount = countByStatus(jobs, "pending-assignment");
     const completedCount = countByStatus(jobs, "completed");
+
     const activeCount = jobs.filter(
       (j) =>
         j.status !== "pending-assignment" &&
         j.status !== "completed" &&
-        j.status !== "cancelled"
+        j.status !== "cancelled",
     ).length;
 
     const scheduledCount = countByType(jobs, "scheduled");
     const adHocCount = countByType(jobs, "ad-hoc");
-
     const todayJobsCount = jobs.filter((j) => j.pickupDate === today).length;
 
     return {
@@ -140,33 +133,33 @@ export default function AdminDashboardPage() {
   // Upcoming jobs timeline (limit to first 8 for now)
   const upcomingJobs = useMemo(() => {
     const futureOrToday = jobs.filter(
-      (j) => j.status !== "completed" && j.status !== "cancelled"
+      (j) => j.status !== "completed" && j.status !== "cancelled",
     );
 
     return futureOrToday
       .slice()
       .sort((a, b) => {
         if (a.pickupDate === b.pickupDate) {
-          const aStart = getSlotStart(a.pickupSlot);
-          const bStart = getSlotStart(b.pickupSlot);
-          return aStart.localeCompare(bStart);
+          return getSlotStart(a.pickupSlot).localeCompare(getSlotStart(b.pickupSlot));
         }
         return a.pickupDate.localeCompare(b.pickupDate);
       })
       .slice(0, 8);
   }, [jobs]);
 
-  // Driver status counts
-  const driverStatusSummary = useMemo(() => {
-    const counts: Record<DriverStatus, number> = {
+  // ✅ Driver status counts (typed + safe)
+  const driverStatusSummary = useMemo((): Record<DriverStatusKey, number> => {
+    const counts: Record<DriverStatusKey, number> = {
       online: 0,
       offline: 0,
       break: 0,
       unavailable: 0,
+      unknown: 0,
     };
 
-    mockDrivers.forEach((d) => {
-      counts[d.currentStatus] = (counts[d.currentStatus] ?? 0) + 1;
+    mockDrivers.forEach((d: any) => {
+      const key = normalizeDriverStatus(d?.currentStatus);
+      counts[key] = (counts[key] ?? 0) + 1;
     });
 
     return counts;
@@ -174,7 +167,7 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="mx-auto max-w-6xl px-6 py-8 space-y-8">
+      <div className="mx-auto max-w-6xl space-y-8 px-6 py-8">
         {/* Header */}
         <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -185,18 +178,14 @@ export default function AdminDashboardPage() {
               Snapshot of jobs, driver capacity, and upcoming pickups.
             </p>
           </div>
-          {!loaded && (
-            <p className="text-xs text-slate-400">Loading job data…</p>
-          )}
+          {!loaded && <p className="text-xs text-slate-400">Loading job data…</p>}
         </header>
 
         {/* Top stats */}
         <section>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <p className="text-xs font-medium text-slate-500">
-                Jobs today
-              </p>
+              <p className="text-xs font-medium text-slate-500">Jobs today</p>
               <p className="mt-2 text-2xl font-semibold text-slate-900">
                 {todayJobsCount}
               </p>
@@ -207,9 +196,7 @@ export default function AdminDashboardPage() {
             </div>
 
             <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <p className="text-xs font-medium text-slate-500">
-                Pending assignment
-              </p>
+              <p className="text-xs font-medium text-slate-500">Pending assignment</p>
               <p className="mt-2 text-2xl font-semibold text-orange-600">
                 {pendingCount}
               </p>
@@ -219,9 +206,7 @@ export default function AdminDashboardPage() {
             </div>
 
             <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <p className="text-xs font-medium text-slate-500">
-                Active jobs
-              </p>
+              <p className="text-xs font-medium text-slate-500">Active jobs</p>
               <p className="mt-2 text-2xl font-semibold text-sky-700">
                 {activeCount}
               </p>
@@ -245,32 +230,22 @@ export default function AdminDashboardPage() {
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <p className="text-xs font-medium text-slate-500">
-                Job mix
-              </p>
+              <p className="text-xs font-medium text-slate-500">Job mix</p>
               <div className="mt-2 flex items-baseline gap-2">
-                <p className="text-xl font-semibold text-slate-900">
-                  {totalJobs}
-                </p>
+                <p className="text-xl font-semibold text-slate-900">{totalJobs}</p>
                 <p className="text-xs text-slate-500">total jobs</p>
               </div>
               <p className="mt-2 text-[11px] text-slate-500">
                 Scheduled:{" "}
-                <span className="font-medium text-slate-800">
-                  {scheduledCount}
-                </span>{" "}
+                <span className="font-medium text-slate-800">{scheduledCount}</span>{" "}
                 · Ad-hoc:{" "}
-                <span className="font-medium text-slate-800">
-                  {adHocCount}
-                </span>
+                <span className="font-medium text-slate-800">{adHocCount}</span>
               </p>
             </div>
 
             {/* Driver status mini-summary */}
             <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <p className="text-xs font-medium text-slate-500">
-                Driver availability
-              </p>
+              <p className="text-xs font-medium text-slate-500">Driver availability</p>
               <div className="mt-2 flex flex-wrap gap-3 text-[11px]">
                 <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-emerald-700">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
@@ -309,63 +284,66 @@ export default function AdminDashboardPage() {
             </div>
 
             <div className="mt-3 space-y-2">
-              {mockDrivers.map((d) => (
-                <div
-                  key={d.id}
-                  className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
-                >
-                  <div>
-                    <p className="text-xs font-semibold text-slate-900">
-                      {d.name}
-                    </p>
-                    <p className="text-[11px] text-slate-500">
-                      {REGION_LABELS[d.primaryRegion]} ·{" "}
-                      {d.vehicleType.toUpperCase()} · {d.vehiclePlate}
-                    </p>
-                    <p className="mt-1 text-[11px] text-slate-500">
-                      Jobs today:{" "}
-                      <span className="font-medium text-slate-800">
-                        {d.assignedJobCountToday ?? 0} / {d.maxJobsPerDay}
-                      </span>
-                    </p>
-                    <p className="mt-1 text-[10px] text-slate-400">
-                      Last seen: {formatDateTimeShort(d.lastSeenAt)}
-                    </p>
-                  </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <span
-                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                        d.currentStatus === "online"
-                          ? "bg-emerald-50 text-emerald-700"
-                          : d.currentStatus === "break"
-                          ? "bg-amber-50 text-amber-700"
-                          : d.currentStatus === "unavailable"
-                          ? "bg-rose-50 text-rose-700"
-                          : "bg-slate-50 text-slate-600"
-                      }`}
-                    >
-                      <span
-                        className={`mr-1 h-1.5 w-1.5 rounded-full ${
-                          d.currentStatus === "online"
-                            ? "bg-emerald-500"
-                            : d.currentStatus === "break"
-                            ? "bg-amber-400"
-                            : d.currentStatus === "unavailable"
-                            ? "bg-rose-500"
-                            : "bg-slate-400"
-                        }`}
-                      />
-                      {formatStatusLabel(d.currentStatus)}
-                    </span>
-                    {d.location && (
-                      <p className="text-[10px] text-slate-400">
-                        Lat {d.location.lat.toFixed(3)}, Lng{" "}
-                        {d.location.lng.toFixed(3)}
+              {mockDrivers.map((d: any) => {
+                const status = normalizeDriverStatus(d?.currentStatus);
+                const vehicleUpper = String(d?.vehicleType ?? "—").toUpperCase();
+                return (
+                  <div
+                    key={d.id}
+                    className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                  >
+                    <div>
+                      <p className="text-xs font-semibold text-slate-900">{d.name}</p>
+                      <p className="text-[11px] text-slate-500">
+                        {regionLabel(d.primaryRegion)} · {vehicleUpper} ·{" "}
+                        {d.vehiclePlate ?? "—"}
                       </p>
-                    )}
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        Jobs today:{" "}
+                        <span className="font-medium text-slate-800">
+                          {d.assignedJobCountToday ?? 0} / {d.maxJobsPerDay ?? "—"}
+                        </span>
+                      </p>
+                      <p className="mt-1 text-[10px] text-slate-400">
+                        Last seen: {formatDateTimeShort(d.lastSeenAt)}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col items-end gap-1">
+                      <span
+                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                          status === "online"
+                            ? "bg-emerald-50 text-emerald-700"
+                            : status === "break"
+                            ? "bg-amber-50 text-amber-700"
+                            : status === "unavailable"
+                            ? "bg-rose-50 text-rose-700"
+                            : "bg-slate-50 text-slate-600"
+                        }`}
+                      >
+                        <span
+                          className={`mr-1 h-1.5 w-1.5 rounded-full ${
+                            status === "online"
+                              ? "bg-emerald-500"
+                              : status === "break"
+                              ? "bg-amber-400"
+                              : status === "unavailable"
+                              ? "bg-rose-500"
+                              : "bg-slate-400"
+                          }`}
+                        />
+                        {formatStatusLabel(status)}
+                      </span>
+
+                      {d.location && typeof d.location.lat === "number" && typeof d.location.lng === "number" && (
+                        <p className="text-[10px] text-slate-400">
+                          Lat {d.location.lat.toFixed(3)}, Lng {d.location.lng.toFixed(3)}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
@@ -386,38 +364,35 @@ export default function AdminDashboardPage() {
                   <tr className="border-b border-slate-200 text-left text-[10px] text-slate-500">
                     <th className="pb-2 pr-2">Driver</th>
                     <th className="pb-2 pr-2">Region</th>
-                    {Object.keys(SLOT_LABELS).map((slotKey) => (
+                    {(Object.keys(SLOT_LABELS) as SlotKey[]).map((slotKey) => (
                       <th key={slotKey} className="pb-2 pr-2">
-                        {SLOT_LABELS[slotKey as SlotKey]}
+                        {SLOT_LABELS[slotKey]}
                       </th>
                     ))}
                   </tr>
                 </thead>
+
                 <tbody className="align-top">
-                  {mockDrivers.map((d) => {
-                    const cap = mockDriverCapacity[d.id] ?? {
-                      morning: 0,
-                      midday: 0,
-                      late: 0,
-                    };
+                  {mockDrivers.map((d: any) => {
+                    const cap = mockDriverCapacity[d.id] ?? { morning: 0, midday: 0, late: 0 };
                     return (
                       <tr key={d.id} className="border-b border-slate-100">
                         <td className="py-2 pr-2 text-xs font-medium text-slate-900">
                           {d.name}
                         </td>
                         <td className="py-2 pr-2 text-[11px] text-slate-500">
-                          {REGION_LABELS[d.primaryRegion]}
+                          {regionLabel(d.primaryRegion)}
                         </td>
+
                         {(Object.keys(SLOT_LABELS) as SlotKey[]).map((slot) => {
                           const util = cap[slot] ?? 0;
-                          const barClass = capacityBarClass(util);
                           const pct = Math.round(util * 100);
                           return (
                             <td key={slot} className="py-2 pr-2">
                               <div className="w-28">
                                 <div className="h-2 w-full rounded-full bg-slate-100">
                                   <div
-                                    className={`h-2 rounded-full ${barClass}`}
+                                    className={`h-2 rounded-full ${capacityBarClass(util)}`}
                                     style={{ width: `${pct}%` }}
                                   />
                                 </div>
@@ -437,17 +412,9 @@ export default function AdminDashboardPage() {
 
             <p className="mt-2 text-[10px] text-slate-400">
               Colour rules:{" "}
-              <span className="font-medium text-emerald-600">
-                Green &lt; 70%
-              </span>{" "}
-              ·{" "}
-              <span className="font-medium text-amber-600">
-                Amber &lt; 90%
-              </span>{" "}
-              ·{" "}
-              <span className="font-medium text-red-600">
-                Red ≥ 90%
-              </span>
+              <span className="font-medium text-emerald-600">Green &lt; 70%</span> ·{" "}
+              <span className="font-medium text-amber-600">Amber &lt; 90%</span> ·{" "}
+              <span className="font-medium text-red-600">Red ≥ 90%</span>
             </p>
           </div>
         </section>
@@ -481,13 +448,12 @@ export default function AdminDashboardPage() {
                         {job.publicId} · {job.customerName}
                       </p>
                       <p className="text-[11px] text-slate-500">
-                        {job.stopsCount} stop
-                        {job.stopsCount > 1 ? "s" : ""} ·{" "}
+                        {job.stopsCount} stop{job.stopsCount > 1 ? "s" : ""} ·{" "}
                         {(Number(job.totalBillableWeightKg) || 0).toFixed(1)} kg ·{" "}
                         {job.pickupSlot}
                       </p>
                       <p className="mt-0.5 text-[11px] text-slate-500">
-                        Region: {REGION_LABELS[job.pickupRegion as RegionCode]}
+                        Region: {regionLabel(job.pickupRegion)}
                       </p>
                     </div>
                   </li>
