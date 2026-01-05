@@ -1,15 +1,10 @@
-// app/admin/layout.tsx
 "use client";
 
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
-import {
-  getCurrentAdmin,
-  logoutAdmin,
-  type AdminSession,
-} from "@/lib/admin-auth";
+import { getCurrentAdmin, logoutAdmin, type AdminSession } from "@/lib/admin-auth";
 
 type AdminLayoutProps = {
   children: ReactNode;
@@ -79,10 +74,6 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     router.replace("/admin/login");
   };
 
-  // ─────────────────────────────────────────────
-  // Render branches
-  // ─────────────────────────────────────────────
-
   if (!initialised) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-100 text-xs text-slate-500">
@@ -91,7 +82,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     );
   }
 
-  // Login page: no sidebar, light theme
+  // Login page: no sidebar
   if (isLoginPage) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
@@ -100,7 +91,6 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     );
   }
 
-  // Authenticated admin shell
   return (
     <div className="flex min-h-screen bg-slate-100 text-slate-900">
       {/* Sidebar - desktop */}
@@ -123,10 +113,13 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
 
         <nav className="flex-1 space-y-1 px-2 py-4">
           {navItems.map((item) => {
-          const active =
-  safePathname === item.href ||
-  (item.href !== "/driver/history" && safePathname.startsWith(item.href));
-
+            // ✅ admin active logic
+            // - exact match OR prefix match
+            // - longest href wins anyway via currentNavItem, but keep nav highlight consistent:
+            const active =
+              safePathname === item.href ||
+              safePathname.startsWith(item.href + "/") ||
+              safePathname.startsWith(item.href);
 
             return (
               <Link
@@ -139,7 +132,6 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
                     : "text-slate-500 hover:bg-slate-100 hover:text-slate-900",
                 ].join(" ")}
               >
-                {/* Tiny "icon" using first letter */}
                 <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-slate-100 text-[11px] font-semibold text-slate-700">
                   {item.label.charAt(0)}
                 </span>
@@ -175,7 +167,6 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
         {/* Top bar */}
         <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 shadow-sm md:px-6">
           <div className="flex items-center gap-3">
-            {/* Collapse toggle - desktop only */}
             <button
               type="button"
               onClick={() => setSidebarCollapsed((c) => !c)}
@@ -185,12 +176,9 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
               {sidebarCollapsed ? "›" : "‹"}
             </button>
 
-            <p className="text-sm font-medium text-slate-700">
-              {breadcrumbText}
-            </p>
+            <p className="text-sm font-medium text-slate-700">{breadcrumbText}</p>
           </div>
 
-          {/* User info + logout (mobile + desktop) */}
           <div className="flex items-center gap-3 text-xs text-slate-500">
             <span className="hidden max-w-[160px] truncate md:inline-block">
               {session?.email ?? "admin"}
@@ -205,7 +193,6 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
           </div>
         </header>
 
-        {/* Page content */}
         <main className="flex-1 px-4 py-4 md:px-6">{children}</main>
       </div>
     </div>
