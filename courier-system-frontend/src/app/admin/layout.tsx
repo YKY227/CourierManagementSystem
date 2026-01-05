@@ -123,7 +123,10 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
 
         <nav className="flex-1 space-y-1 px-2 py-4">
           {navItems.map((item) => {
-            const active = safePathname.startsWith(item.href);
+          const active =
+  safePathname === item.href ||
+  (item.href !== "/driver/history" && safePathname.startsWith(item.href));
+
 
             return (
               <Link
