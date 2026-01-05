@@ -1,12 +1,19 @@
+//src/app/(public-pages)/page.tsx
+
 "use client";
 
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-
+import LoginRoleChooser from "@/components/public/LoginRoleChooser";
 
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-white to-slate-50">
+      {/* TOP RIGHT LOGIN (admin / driver only) */}
+      <div className="mx-auto flex max-w-5xl justify-end px-6 py-4">
+        <LoginRoleChooser />
+      </div>
+      
       {/* HERO */}
       <section className="mx-auto max-w-5xl px-6 py-20 text-center">
         <h1 className="text-4xl font-bold text-slate-900 md:text-5xl">

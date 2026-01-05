@@ -126,36 +126,31 @@ export default function DriverHistoryPage() {
         ) : (
           <div className="space-y-3">
             {completed.map((job) => (
-              <div
-                key={job.id}
-                className="rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-xs"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <p className="font-mono text-[11px] text-slate-400">
-                      {job.displayId}
-                    </p>
-                    <p className="text-sm font-semibold text-slate-50">
-                      {job.originLabel}
-                    </p>
-                    <p className="text-[11px] text-slate-400">
-                      {job.areaLabel}
-                    </p>
-                  </div>
-                  <div className="text-right text-[11px] text-slate-300">
-                    <p>{job.pickupDate}</p>
-                    <p className="font-medium">{job.pickupWindow}</p>
-                    <p className="mt-1 text-slate-400">
-                      {job.totalStops} stops ·{" "}
-                      {job.totalBillableWeightKg.toFixed(1)} kg
-                    </p>
-                    <p className="mt-0.5 text-[10px] text-emerald-300">
-                      Completed (offline data)
-                    </p>
-                  </div>
-                </div>
-              </div>
-            ))}
+  <Link
+    key={job.id}
+    href={`/driver/job/${job.id}`}
+    className="block rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-xs hover:border-sky-500 hover:bg-slate-900"
+  >
+    <div className="flex items-center justify-between gap-2">
+      <div>
+        <p className="font-mono text-[11px] text-slate-400">{job.displayId}</p>
+        <p className="text-sm font-semibold text-slate-50">{job.originLabel}</p>
+        <p className="text-[11px] text-slate-400">{job.areaLabel}</p>
+      </div>
+      <div className="text-right text-[11px] text-slate-300">
+        <p>{job.pickupDate}</p>
+        <p className="font-medium">{job.pickupWindow}</p>
+        <p className="mt-1 text-slate-400">
+          {job.totalStops} stops · {job.totalBillableWeightKg.toFixed(1)} kg
+        </p>
+        <p className="mt-0.5 text-[10px] text-emerald-300">
+          Completed (offline data)
+        </p>
+      </div>
+    </div>
+  </Link>
+))}
+
           </div>
         )}
       </section>

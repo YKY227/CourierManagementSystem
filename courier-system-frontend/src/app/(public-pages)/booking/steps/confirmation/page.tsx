@@ -1,10 +1,11 @@
+// src/app/(public-pages)/booking/steps/confirmation/page.tsx
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { StepLayout } from "@/components/wizard/StepLayout";
-import { useBooking } from "@/lib/booking-store";
+import { useBooking, type ServiceType } from "@/lib/booking-store";
 import { mockEstimatePrice } from "@/lib/pricing";
 import { formatCurrency } from "@/lib/utils";
 
@@ -14,37 +15,51 @@ type ConfirmationStepProps = {
   };
 };
 
+// ✅ Narrow serviceType for pricing.ts type
+type PricingServiceType = Exclude<ServiceType, null>;
+function isPricingServiceType(v: any): v is PricingServiceType {
+  return v === "same-day" || v === "next-day" || v === "express-3h";
+}
+
 export default function ConfirmationStep({ searchParams }: ConfirmationStepProps) {
   const router = useRouter();
   const {
     serviceType,
     routeType,
-    pickup,
+    pickups,
     deliveries,
     items,
     schedule,
     resetBooking,
   } = useBooking();
 
-  // ✅ Real jobId from backend (publicId passed via query string)
   const jobId = searchParams?.jobId;
 
-  // 🛡 Guard: if user lands here without a jobId, send them back
+  // ✅ Normalize pickup list (store is array already, but keep defensive)
+  const pickupList = useMemo(() => (Array.isArray(pickups) ? pickups : []), [pickups]);
+
+  const allowManyPickups = routeType === "many-to-one";
+  const pickupsForDisplay = allowManyPickups ? pickupList : pickupList.slice(0, 1);
+
+  // Accordion open states
+  const [pickupOpenMap, setPickupOpenMap] = useState<Record<string, boolean>>(() => ({}));
+  const [deliveryOpenMap, setDeliveryOpenMap] = useState<Record<string, boolean>>(() => ({}));
+
+  // 🛡 Guard
   useEffect(() => {
     if (!jobId) {
       router.replace("/booking/steps/summary");
       return;
     }
 
-    // Optional: also ensure wizard data exists (in case of hard refresh)
+    const hasPickup = pickupList.length > 0;
+
     if (
       !serviceType ||
       !routeType ||
-      !pickup ||
-      !deliveries ||
-      deliveries.length === 0 ||
-      !items ||
-      items.length === 0 ||
+      !hasPickup ||
+      !deliveries?.length ||
+      !items?.length ||
       !schedule
     ) {
       router.replace("/booking/steps/delivery-type");
@@ -53,20 +68,53 @@ export default function ConfirmationStep({ searchParams }: ConfirmationStepProps
     jobId,
     serviceType,
     routeType,
-    pickup,
-    deliveries,
-    items,
+    pickupList.length,
+    deliveries?.length,
+    items?.length,
     schedule,
     router,
   ]);
 
-  // ─────────────────────────────────────────────
-  // Reuse pricing & weight logic for recap
-  // ─────────────────────────────────────────────
+  // Keep pickup accordion map in sync
+  useEffect(() => {
+    if (!pickupsForDisplay.length) return;
 
+    setPickupOpenMap((prev) => {
+      const next: Record<string, boolean> = { ...prev };
+
+      for (const p of pickupsForDisplay) {
+        if (next[p.id] === undefined) next[p.id] = true; // default open
+      }
+
+      for (const key of Object.keys(next)) {
+        if (!pickupsForDisplay.some((p) => p.id === key)) delete next[key];
+      }
+
+      return next;
+    });
+  }, [pickupsForDisplay]);
+
+  // Keep delivery accordion map in sync
+  useEffect(() => {
+    if (!deliveries?.length) return;
+
+    setDeliveryOpenMap((prev) => {
+      const next: Record<string, boolean> = { ...prev };
+      for (const d of deliveries) {
+        if (next[d.id] === undefined) next[d.id] = false; // default collapsed
+      }
+      for (const key of Object.keys(next)) {
+        if (!deliveries.some((d) => d.id === key)) delete next[key];
+      }
+      return next;
+    });
+  }, [deliveries]);
+
+  // ─────────────────────────────────────────────
+  // Pricing recap
+  // ─────────────────────────────────────────────
   const totalBillableWeight = useMemo(() => {
-    if (!items) return 0;
-    return items.reduce((sum, item) => {
+    return (items ?? []).reduce((sum, item) => {
       const vol = item.volumetricWeightKg || 0;
       const actual = item.weightKg || 0;
       const billablePerUnit = vol > actual ? vol : actual;
@@ -77,13 +125,16 @@ export default function ConfirmationStep({ searchParams }: ConfirmationStepProps
 
   const mockDistanceKm = 12;
 
+  const stopsCount = (pickupsForDisplay.length || 0) + (deliveries?.length || 0);
+
   const estimatedPrice = useMemo(() => {
-    if (!serviceType) return 0;
+    if (!isPricingServiceType(serviceType)) return 0;
+
     return mockEstimatePrice({
       distanceKm: mockDistanceKm,
       totalBillableWeightKg: totalBillableWeight,
-      stops: deliveries?.length ?? 0,
-      serviceType,
+      stops: deliveries?.length ?? 0, // pricing engine expects delivery stops count in your mock
+      serviceType, // ✅ now narrowed correctly
     });
   }, [serviceType, totalBillableWeight, deliveries?.length]);
 
@@ -96,17 +147,42 @@ export default function ConfirmationStep({ searchParams }: ConfirmationStepProps
       ? "3-Hour Express"
       : "-";
 
+  const routeLabel =
+    routeType === "one-to-many"
+      ? "One pickup → Many deliveries"
+      : routeType === "many-to-one"
+      ? "Many pickups → One delivery"
+      : routeType === "one-to-one"
+      ? "One pickup → One delivery"
+      : routeType === "round-trip"
+      ? "Round trip / sequence"
+      : "-";
+
   const handleNewBooking = () => {
-    // Reset wizard + start fresh
     resetBooking();
     router.push("/booking/steps/delivery-type");
   };
 
   const handleTrackJob = () => {
     if (!jobId) return;
-    // ✅ Now use real backend publicId
     router.push(`/tracking/${encodeURIComponent(jobId)}`);
   };
+
+  // ✅ Styling helpers
+  const card = "rounded-3xl border border-slate-200 bg-white p-6 shadow-sm";
+  const cardTitle = "text-xs font-semibold uppercase tracking-wide text-slate-500";
+
+  const primaryBtn =
+    "inline-flex items-center justify-center rounded-xl bg-slate-900 px-6 py-3 " +
+    "text-base font-semibold text-white shadow-sm transition " +
+    "hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 " +
+    "disabled:cursor-not-allowed disabled:opacity-60";
+
+  const secondaryBtn =
+    "inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-5 py-3 " +
+    "text-base font-semibold text-slate-700 transition hover:bg-slate-50 " +
+    "focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-2 " +
+    "disabled:cursor-not-allowed disabled:opacity-60";
 
   return (
     <StepLayout
@@ -118,152 +194,223 @@ export default function ConfirmationStep({ searchParams }: ConfirmationStepProps
     >
       <div className="space-y-6">
         {/* Success banner */}
-        <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-          <div className="mt-0.5 h-6 w-6 shrink-0 rounded-full bg-emerald-500 text-center text-sm font-semibold text-white">
-            ✓
-          </div>
-          <div className="text-sm text-emerald-900">
-            <p className="font-semibold">
-              Booking submitted successfully.
-            </p>
-            <p className="mt-0.5 text-[11px] text-emerald-900/80">
-              Our team will check delivery capacity and confirm the slot. 
-              You&apos;ll be contacted if any rescheduling is required.
-            </p>
+        <div className="rounded-3xl border border-emerald-200 bg-emerald-50 px-6 py-5">
+          <div className="flex items-start gap-4">
+            <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-base font-bold text-white">
+              ✓
+            </div>
+            <div className="text-emerald-950">
+              <p className="text-base font-semibold">Booking submitted successfully.</p>
+              <p className="mt-1 text-sm text-emerald-950/80">
+                Our team will check delivery capacity and confirm the slot. You&apos;ll be contacted if any
+                rescheduling is required.
+              </p>
+            </div>
           </div>
         </div>
 
-        {/* Job ID + key info */}
+        {/* Key info row */}
         <div className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Job ID
-            </h2>
-            <p className="mt-1 text-sm font-semibold text-slate-900">
-              {jobId ?? "—"}
-            </p>
-            <p className="mt-1 text-[11px] text-slate-500">
-              Use this ID when you contact support or check the job status.
+          <div className={card}>
+            <h2 className={cardTitle}>Job ID</h2>
+            <p className="mt-2 text-lg font-semibold text-slate-900">{jobId ?? "—"}</p>
+            <p className="mt-2 text-sm text-slate-600">
+              Use this ID when contacting support or checking status.
             </p>
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Service & Schedule
-            </h2>
-            <p className="mt-1 text-sm font-semibold text-slate-900">
-              {serviceLabel}
+          <div className={card}>
+            <h2 className={cardTitle}>Service &amp; Schedule</h2>
+            <p className="mt-2 text-lg font-semibold text-slate-900">{serviceLabel}</p>
+            <p className="mt-1 text-sm text-slate-700">
+              Route: <span className="font-semibold">{routeLabel}</span>
             </p>
+
             {schedule && (
-              <p className="mt-1 text-[11px] text-slate-500">
-                Pickup on{" "}
-                <span className="font-medium">{schedule.pickupDate}</span> ·{" "}
-                Slot:{" "}
-                <span className="font-medium">{schedule.pickupSlot}</span>
+              <p className="mt-2 text-sm text-slate-600">
+                Pickup on <span className="font-semibold text-slate-900">{schedule.pickupDate}</span> · Slot{" "}
+                <span className="font-semibold text-slate-900">{schedule.pickupSlot}</span>
               </p>
             )}
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Summary
-            </h2>
-            <p className="mt-1 text-sm font-semibold text-slate-900">
-              {deliveries?.length ?? 0} delivery point
-              {deliveries && deliveries.length > 1 ? "s" : ""}
+          <div className={card}>
+            <h2 className={cardTitle}>Summary</h2>
+            <p className="mt-2 text-lg font-semibold text-slate-900">
+              {deliveries?.length ?? 0} delivery point{deliveries && deliveries.length > 1 ? "s" : ""}
             </p>
-            <p className="mt-1 text-[11px] text-slate-500">
-              Est. charges:{" "}
-              <span className="font-semibold">
-                {formatCurrency(estimatedPrice)}
-              </span>
-              <br />
-              Billable weight: {totalBillableWeight.toFixed(2)} kg
-            </p>
+            <div className="mt-2 text-sm text-slate-600">
+              <div>
+                Stops <span className="font-semibold text-slate-900">{stopsCount}</span>
+              </div>
+              <div>
+                Est. charges{" "}
+                <span className="font-semibold text-slate-900">{formatCurrency(estimatedPrice)}</span>
+              </div>
+              <div>Billable weight {totalBillableWeight.toFixed(2)} kg</div>
+            </div>
           </div>
         </div>
 
-        {/* Brief recap of pickup + first few stops */}
-        <div className="grid gap-4 md:grid-cols-[1.3fr_1.7fr]">
-          <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Pickup Location
-            </h2>
-            <p className="mt-1 text-sm font-semibold text-slate-900">
-              {pickup?.companyName || pickup?.contactName || "Pickup Location"}
-            </p>
-            <p className="mt-1 text-xs text-slate-700">
-              {pickup?.addressLine1}
-              {pickup?.addressLine2 ? `, ${pickup.addressLine2}` : ""}
-            </p>
-            <p className="text-xs text-slate-700">{pickup?.postalCode}</p>
-            <p className="mt-1 text-[11px] text-slate-500">
-              Contact: {pickup?.contactName} · {pickup?.contactPhone}
-            </p>
-            {pickup?.remarks && (
-              <p className="mt-1 text-[11px] text-slate-500">
-                Remarks: {pickup.remarks}
-              </p>
-            )}
+        {/* Accordions */}
+        <div className="grid gap-4 md:grid-cols-2">
+          {/* Pickups */}
+          <div className={card}>
+            <p className={cardTitle}>Pickup Location{pickupsForDisplay.length > 1 ? "s" : ""}</p>
+
+            <div className="mt-4 space-y-3">
+              {pickupsForDisplay.map((p, idx) => {
+                const isOpen = !!pickupOpenMap[p.id];
+
+                return (
+                  <div key={p.id} className="rounded-3xl border border-slate-200 bg-slate-50">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPickupOpenMap((prev) => ({ ...prev, [p.id]: !prev[p.id] }))
+                      }
+                      className="flex w-full items-start justify-between gap-3 px-5 py-4 text-left"
+                      aria-expanded={isOpen}
+                    >
+                      <div>
+                        <p className="text-base font-semibold text-slate-900">
+                          Pickup #{idx + 1} · {p.companyName || p.contactName || "Pickup Location"}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {p.addressLine1}
+                          {p.addressLine2 ? `, ${p.addressLine2}` : ""}
+                          {p.postalCode ? ` (${p.postalCode})` : ""}
+                        </p>
+                      </div>
+
+                      <span
+                        className={[
+                          "mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition",
+                          isOpen ? "rotate-180" : "",
+                        ].join(" ")}
+                      >
+                        ▾
+                      </span>
+                    </button>
+
+                    {isOpen && (
+                      <div className="px-5 pb-4">
+                        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                          <p className="text-sm text-slate-700">
+                            <span className="font-semibold text-slate-900">Contact:</span>{" "}
+                            {p.contactName} · {p.contactPhone}
+                          </p>
+
+                          {p.remarks && (
+                            <p className="mt-2 text-sm text-slate-700">
+                              <span className="font-semibold text-slate-900">Remarks:</span> {p.remarks}
+                            </p>
+                          )}
+
+                          {schedule && (
+                            <p className="mt-2 text-sm text-slate-700">
+                              <span className="font-semibold text-slate-900">Schedule:</span>{" "}
+                              {schedule.pickupDate} · {schedule.pickupSlot}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
-          <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-4">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Delivery Overview
-            </h2>
-            {deliveries?.slice(0, 3).map((d) => (
-              <div
-                key={d.id}
-                className="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-[11px]"
-              >
-                <p className="font-semibold text-slate-900">
-                  {d.addressLine1}
-                  {d.addressLine2 ? `, ${d.addressLine2}` : ""} ({d.postalCode})
+          {/* Deliveries */}
+          <div className={card}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className={cardTitle}>Delivery Overview</p>
+                <p className="mt-2 text-lg font-semibold text-slate-900">
+                  {deliveries?.length ?? 0} destination{deliveries && deliveries.length > 1 ? "s" : ""}
                 </p>
-                <p className="text-slate-600">
-                  Recipient: {d.contactName} · {d.contactPhone}
+                <p className="mt-1 text-sm text-slate-600">
+                  Expand a destination to see recipient + remarks.
                 </p>
-                {d.remarks && (
-                  <p className="mt-0.5 text-slate-500">
-                    Delivery remarks: {d.remarks}
-                  </p>
-                )}
               </div>
-            ))}
-            {deliveries && deliveries.length > 3 && (
-              <p className="text-[11px] text-slate-500">
-                + {deliveries.length - 3} more delivery point
-                {deliveries.length - 3 > 1 ? "s" : ""} in this job.
-              </p>
-            )}
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {deliveries?.map((d, idx) => {
+                const isOpen = !!deliveryOpenMap[d.id];
+
+                return (
+                  <div key={d.id} className="rounded-3xl border border-slate-200 bg-slate-50">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDeliveryOpenMap((prev) => ({ ...prev, [d.id]: !prev[d.id] }))
+                      }
+                      aria-expanded={isOpen}
+                      className="flex w-full items-start justify-between gap-3 px-5 py-4 text-left"
+                    >
+                      <div>
+                        <p className="text-base font-semibold text-slate-900">
+                          Delivery Point #{idx + 1}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-700">
+                          {d.addressLine1}
+                          {d.addressLine2 ? `, ${d.addressLine2}` : ""}{" "}
+                          {d.postalCode ? `(${d.postalCode})` : ""}
+                        </p>
+                      </div>
+
+                      <span
+                        className={[
+                          "mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition",
+                          isOpen ? "rotate-180" : "",
+                        ].join(" ")}
+                      >
+                        ▾
+                      </span>
+                    </button>
+
+                    {isOpen && (
+                      <div className="px-5 pb-4">
+                        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                          <p className="text-sm text-slate-700">
+                            <span className="font-semibold text-slate-900">Recipient:</span>{" "}
+                            {d.contactName} · {d.contactPhone}
+                          </p>
+
+                          {d.remarks && (
+                            <p className="mt-2 text-sm text-slate-700">
+                              <span className="font-semibold text-slate-900">Remarks:</span>{" "}
+                              {d.remarks}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
 
         {/* Actions */}
-        <div className="flex flex-col gap-3 border-t border-slate-200 pt-4 md:flex-row md:items-center md:justify-between">
-          <div className="text-[11px] text-slate-500">
-            STL team will assign a driver and update you on any changes to the
-            schedule. You can track the status of this job using the Job ID
-            above.
-          </div>
+        <div className="rounded-3xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <p className="text-sm text-slate-600">
+              STL team will assign a driver and update you on any changes. You can track this job anytime using the Job ID above.
+            </p>
 
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={handleTrackJob}
-              disabled={!jobId}
-              className="inline-flex items-center rounded-lg border border-sky-600 px-4 py-2 text-xs font-medium text-sky-700 hover:bg-sky-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
-            >
-              Track this job →
-            </button>
+            <div className="flex flex-wrap gap-3">
+              <button type="button" onClick={handleTrackJob} disabled={!jobId} className={secondaryBtn}>
+                Track this job →
+              </button>
 
-            <button
-              type="button"
-              onClick={handleNewBooking}
-              className="inline-flex items-center rounded-lg bg-slate-900 px-4 py-2 text-xs font-medium text-white hover:bg-slate-800"
-            >
-              + Book another job
-            </button>
+              <button type="button" onClick={handleNewBooking} className={primaryBtn}>
+                + Book another job
+              </button>
+            </div>
           </div>
         </div>
       </div>

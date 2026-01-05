@@ -14,6 +14,7 @@ import { DriverProofController } from './driver/driver-proof.controller';
 import {MailModule} from './mail/mail.module';
 import { TrackingModule } from "./tracking/tracking.module";
 import { PricingModule } from "./pricing/pricing.module";
+import { AdminSettingsModule } from "./admin-settings/admin-settings.module";
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { PricingModule } from "./pricing/pricing.module";
     TrackingModule,
     AdminModule,
     PricingModule, 
+    AdminSettingsModule,
   ],
   controllers: [
     AppController,

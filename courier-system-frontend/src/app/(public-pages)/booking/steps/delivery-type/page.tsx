@@ -57,32 +57,40 @@ export default function DeliveryTypeStep() {
         {serviceOptions.map((option) => {
           const isSelected = serviceType === option.id;
           return (
-            <button
-              key={option.id ?? "none"}
-              type="button"
-              onClick={() => handleSelect(option.id)}
-              className={[
-                "flex flex-col items-start rounded-xl border p-4 text-left transition",
-                "hover:border-sky-400 hover:shadow-sm",
-                isSelected
-                  ? "border-sky-500 bg-sky-50"
-                  : "border-slate-200 bg-white",
-              ].join(" ")}
-            >
-              <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-600">
-                {option.badge}
-              </span>
-              <h2 className="mt-2 text-sm font-semibold text-slate-900">
-                {option.label}
-              </h2>
-              <p className="mt-1 text-xs text-slate-600">
-                {option.description}
-              </p>
-              <p className="mt-2 text-[11px] text-slate-500">{option.details}</p>
-              <span className="mt-3 text-xs font-medium text-sky-600">
-                {isSelected ? "Selected ✓" : "Select this option →"}
-              </span>
-            </button>
+           <button
+  key={option.id ?? "none"}
+  type="button"
+  onClick={() => handleSelect(option.id)}
+  className={[
+    "group flex flex-col items-start rounded-2xl border p-6 text-left transition",
+    "hover:-translate-y-0.5 hover:border-sky-400 hover:shadow-md",
+    "focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-2",
+    isSelected
+      ? "border-sky-500 bg-sky-50 shadow-sm"
+      : "border-slate-200 bg-white",
+  ].join(" ")}
+>
+  <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
+    {option.badge}
+  </span>
+
+  <h2 className="mt-3 text-lg font-semibold text-slate-900">
+    {option.label}
+  </h2>
+
+  <p className="mt-2 text-sm text-slate-700">
+    {option.description}
+  </p>
+
+  <p className="mt-3 text-sm text-slate-600">
+    {option.details}
+  </p>
+
+  <span className="mt-5 text-sm font-semibold text-sky-700">
+    {isSelected ? "Selected ✓" : "Select this option →"}
+  </span>
+</button>
+
           );
         })}
       </div>

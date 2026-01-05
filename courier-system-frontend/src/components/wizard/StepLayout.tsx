@@ -21,45 +21,57 @@ export function StepLayout({
   totalSteps,
   backHref,
 }: StepLayoutProps) {
+  const progress = Math.min(100, Math.max(0, (currentStep / totalSteps) * 100));
+
   return (
-    <main className="min-h-screen flex items-center justify-center bg-slate-50">
-      <div className="w-full max-w-3xl px-4 py-8">
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-wide text-slate-500">
+    <main className="min-h-screen bg-slate-50">
+      <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col justify-center px-4 py-10 md:px-8">
+        {/* Header */}
+        <div className="mb-6 flex flex-col gap-4 md:mb-8 md:flex-row md:items-end md:justify-between">
+          <div className="min-w-0">
+            <p className="text-sm font-medium uppercase tracking-wide text-slate-500">
               Booking Wizard
             </p>
-            <h1 className="text-2xl font-semibold text-slate-900">{title}</h1>
-            {subtitle && (
-              <p className="mt-1 text-sm text-slate-600">{subtitle}</p>
-            )}
+            <h1 className="mt-1 text-3xl font-semibold tracking-tight text-slate-900 md:text-4xl">
+              {title}
+            </h1>
+            {subtitle ? (
+              <p className="mt-2 max-w-2xl text-base text-slate-600 md:text-lg">
+                {subtitle}
+              </p>
+            ) : null}
           </div>
-          <div className="text-right">
-            <p className="text-xs text-slate-500">
-              Step {currentStep} of {totalSteps}
+
+          <div className="shrink-0 text-left md:text-right">
+            <p className="text-sm text-slate-500">
+              Step <span className="font-semibold text-slate-700">{currentStep}</span>{" "}
+              of <span className="font-semibold text-slate-700">{totalSteps}</span>
             </p>
-            <div className="mt-1 h-1 w-32 rounded-full bg-slate-200">
+
+            <div className="mt-2 h-2 w-44 overflow-hidden rounded-full bg-slate-200 md:w-56">
               <div
-                className="h-1 rounded-full bg-sky-500"
-                style={{ width: `${(currentStep / totalSteps) * 100}%` }}
+                className="h-full rounded-full bg-sky-500 transition-[width] duration-300"
+                style={{ width: `${progress}%` }}
               />
             </div>
           </div>
         </div>
 
-        {backHref && (
+        {/* Back link */}
+        {backHref ? (
           <div className="mb-4">
             <Link
               href={backHref}
-              className="inline-flex items-center text-xs text-slate-500 hover:text-slate-700"
+              className="inline-flex items-center text-sm font-medium text-slate-600 hover:text-slate-900"
             >
               ← Back
             </Link>
           </div>
-        )}
+        ) : null}
 
-        <section className="rounded-2xl bg-white shadow-sm border border-slate-200 p-4 sm:p-6">
-          {children}
+        {/* Content card */}
+        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-md sm:p-8">
+          <div className="text-base md:text-lg">{children}</div>
         </section>
       </div>
     </main>

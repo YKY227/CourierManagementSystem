@@ -1,10 +1,23 @@
 // src/admin/dto/create-booking.dto.ts
-import { IsString, IsOptional, IsArray, IsNumber } from 'class-validator';
-import { JobType, RegionCode } from '../../../generated/prisma/client';
+import {
+  IsString,
+  IsOptional,
+  IsArray,
+  IsNumber,
+  ValidateNested,
+  IsIn,
+} from "class-validator";
+import { Type } from "class-transformer";
+import {
+  JobType,
+  RegionCode,
+  AssignmentMode,
+} from "../../../generated/prisma/client";
 
 export class CreateBookingStopDto {
   @IsString()
-  type: 'pickup' | 'delivery' | 'return';
+  @IsIn(["pickup", "delivery", "return"])
+  type: "pickup" | "delivery" | "return";
 
   @IsString()
   label: string;
@@ -26,6 +39,20 @@ export class CreateBookingStopDto {
   @IsOptional()
   @IsString()
   contactPhone?: string;
+
+  // ✅ New (optional): geo for pricing/distance
+  @IsOptional()
+  @IsNumber()
+  latitude?: number;
+
+  @IsOptional()
+  @IsNumber()
+  longitude?: number;
+
+  // ✅ New (optional): stop notes
+  @IsOptional()
+  @IsString()
+  notes?: string;
 }
 
 export class CreateBookingDto {
@@ -51,7 +78,7 @@ export class CreateBookingDto {
   pickupSlot: string;
 
   @IsString()
-  jobType: JobType; // "scheduled" | "same_day" etc.
+  jobType: JobType; // e.g. "scheduled"
 
   @IsOptional()
   @IsString()
@@ -65,7 +92,18 @@ export class CreateBookingDto {
   @IsNumber()
   totalBillableWeightKg?: number;
 
+  // ✅ New (optional): assignment mode + booking source
   @IsOptional()
+  @IsString()
+  assignmentMode?: AssignmentMode;
+
+  @IsOptional()
+  @IsString()
+  source?: string; // "web" | "whatsapp" | "admin" (string for now)
+
+  // ✅ Stops (nested validation)
   @IsArray()
-  stops?: CreateBookingStopDto[];
+  @ValidateNested({ each: true })
+  @Type(() => CreateBookingStopDto)
+  stops: CreateBookingStopDto[];
 }

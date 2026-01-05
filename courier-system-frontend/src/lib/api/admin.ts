@@ -300,10 +300,11 @@ export async function fetchPublicTrackingJob(
     throw new Error("fetchPublicTrackingJob called while USE_BACKEND=false");
   await ensureBackendUp();
 
-  return fetchJson<AdminJobDetailDto>(
-    `${API_BASE_URL}/tracking/${encodeURIComponent(publicId)}`,
-    { method: "GET", cache: "no-store" }
-  );
+ return fetchJson<AdminJobDetailDto>(
+  `${API_BASE_URL}/admin/tracking/${encodeURIComponent(publicId)}`,
+  { method: "GET", cache: "no-store" }
+);
+
 }
 
 // ─────────────────────────────────────────────
@@ -329,18 +330,22 @@ export interface PricingQuoteResponse {
 }
 
 export async function fetchPricingQuote(
-  payload: PricingQuoteRequest
+  payload: PricingQuoteRequest & { signal?: AbortSignal }
 ): Promise<PricingQuoteResponse> {
   if (!USE_BACKEND)
     throw new Error("fetchPricingQuote called while USE_BACKEND=false");
   await ensureBackendUp();
 
+  const { signal, ...bodyPayload } = payload;
+
   return fetchJson<PricingQuoteResponse>(`${API_BASE_URL}/pricing/quote`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(bodyPayload),
+    signal,
   });
 }
+
 
 // ─────────────────────────────────────────────
 // Drivers

@@ -339,3 +339,24 @@ model PricingConfig {
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
 }
+
+model OrgSettings {
+  id                        String   @id @default("singleton")
+  orgName                   String   @default("Courier Ops")
+  supportEmail              String   @default("support@example.com")
+  whatsappNumber            String?  
+  brandingLogoUrl           String?
+
+  // Primary ops notification recipients (array)
+  adminNotificationEmails   String[] @default([])
+
+  // Tester routing
+  bccTesterEnabled          Boolean  @default(false)
+  testerEmails              String[] @default([])
+
+  // Optional: per-event routing (start simple now, expand later)
+  bookingPaidRecipients     String[] @default([])
+  overdueRecipients         String[] @default([])
+
+  updatedAt                 DateTime @updatedAt
+}

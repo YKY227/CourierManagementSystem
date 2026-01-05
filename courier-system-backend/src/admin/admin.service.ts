@@ -124,6 +124,10 @@ export class AdminService {
           stopsCount: true,
           totalBillableWeightKg: true,
           createdAt: true,
+
+           // ✅ ADD THESE
+  serviceType: true,
+  routeType: true,
         },
       }),
     ]);
@@ -143,6 +147,9 @@ export class AdminService {
       stopsCount: j.stopsCount ?? 0,
       totalBillableWeightKg: j.totalBillableWeightKg?.toString?.() ?? "0",
       createdAt: j.createdAt.toISOString(),
+        // ✅ ADD THESE (pass-through)
+  serviceType: (j as any).serviceType ?? null,
+  routeType: (j as any).routeType ?? null,
     }));
 
     return {

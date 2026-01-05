@@ -67,7 +67,7 @@ function toWeightNumber(weight: unknown): number {
 export default function DriverJobsPage() {
   const router = useRouter();
   const { driverJobs, loaded: jobsLoaded, refreshDriverJobs, driverJobsLoading } = useUnifiedJobs();
-
+  
   const { driver, loaded: identityLoaded, logoutDriver } = useDriverIdentity();
 
   

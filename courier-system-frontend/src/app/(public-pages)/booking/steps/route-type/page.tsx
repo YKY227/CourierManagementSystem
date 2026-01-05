@@ -47,15 +47,13 @@ const routeOptions: {
   },
 ];
 
+
 export default function RouteTypeStep() {
   const router = useRouter();
   const { routeType, setRouteType, serviceType } = useBooking();
 
-  // 🛡 Wizard guard: if no service type, send back to first step
   useEffect(() => {
-    if (!serviceType) {
-      router.replace("/booking/steps/delivery-type");
-    }
+    if (!serviceType) router.replace("/booking/steps/delivery-type");
   }, [serviceType, router]);
 
   const handleSelect = (id: RouteType) => {
@@ -75,37 +73,43 @@ export default function RouteTypeStep() {
       totalSteps={8}
       backHref="/booking/steps/delivery-type"
     >
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-5 md:grid-cols-2">
         {routeOptions.map((option) => {
           const isSelected = routeType === option.id;
+
           return (
             <button
               key={option.id ?? "none"}
               type="button"
               onClick={() => handleSelect(option.id)}
               className={[
-                "flex flex-col rounded-xl border p-4 text-left transition",
-                "hover:border-sky-400 hover:shadow-sm",
+                "group flex flex-col items-start rounded-2xl border p-6 text-left transition",
+                "hover:-translate-y-0.5 hover:border-sky-400 hover:shadow-md",
+                "focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-2",
                 isSelected
-                  ? "border-sky-500 bg-sky-50"
+                  ? "border-sky-500 bg-sky-50 shadow-sm"
                   : "border-slate-200 bg-white",
               ].join(" ")}
             >
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-slate-900">
+              <div className="flex w-full items-start justify-between gap-3">
+                <h2 className="text-lg font-semibold text-slate-900">
                   {option.label}
                 </h2>
-                <span className="text-[11px] font-medium text-slate-500">
+
+                <span className="shrink-0 inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
                   {option.short}
                 </span>
               </div>
-              <p className="mt-1 text-xs text-slate-600">
+
+              <p className="mt-3 text-sm text-slate-700">
                 {option.description}
               </p>
-              <p className="mt-2 text-[11px] italic text-slate-500">
+
+              <p className="mt-3 text-sm italic text-slate-600">
                 {option.example}
               </p>
-              <span className="mt-3 text-xs font-medium text-sky-600">
+
+              <span className="mt-5 text-sm font-semibold text-sky-700">
                 {isSelected ? "Selected ✓" : "Select this route →"}
               </span>
             </button>

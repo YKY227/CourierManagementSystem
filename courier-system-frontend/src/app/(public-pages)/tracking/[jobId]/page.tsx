@@ -34,16 +34,19 @@ type TrackingPageProps = {
 
 function statusToStepIndex(status: string | null | undefined): number {
   if (!status) return 0;
+
   switch (status) {
     case "completed":
       return 3;
-    case "out_for_pickup":
-    case "in_transit":
+
+    case "in-progress":
+    case "pickup":
       return 2;
-    case "assigned":
-    case "pending_assign":
+
+    case "allocated":
       return 1;
-    // booked / default
+
+    case "booked":
     default:
       return 0;
   }
@@ -62,7 +65,9 @@ export default function TrackingPage({ params }: TrackingPageProps) {
       setLoading(true);
       setError(null);
       try {
-        const data = await fetchPublicTrackingJob(jobId);
+        const data = await fetchPublicTrackingJob(jobId); 
+        console.log("[TrackingPage] backend status:", data?.job?.status);
+console.log("[TrackingPage] proofPhotos:", data?.proofPhotos?.length);
         setDetail(data);
       } catch (e: any) {
         console.error("[TrackingPage] Failed to load tracking job", e);

@@ -110,6 +110,33 @@ function mapAssignmentMode(mode: string | null): AssignmentMode | null {
   return mode === 'auto' ? AssignmentMode.auto : AssignmentMode.manual;
 }
 
+// --- Seed Org Settings (singleton) ---
+async function seedOrgSettings() {
+  console.log('Seeding org settings…');
+
+  await prisma.orgSettings.upsert({
+    where: { id: 'singleton' },
+    update: {
+      // keep minimal updates so re-seeding doesn’t overwrite real data
+    },
+    create: {
+      id: 'singleton',
+      orgName: 'Courier Ops',
+      supportEmail: 'support@example.com',
+
+      adminNotificationEmails: [],
+      bookingPaidRecipients: [],
+      overdueRecipients: [],
+
+      bccTesterEnabled: false,
+      testerEmails: [],
+    },
+  });
+
+  console.log('Org settings ready.');
+}
+
+
 // --- Seed Drivers ---
 async function seedDrivers() {
   console.log('Seeding drivers…');
@@ -222,6 +249,7 @@ async function seedJobs() {
 
 // --- Run seeds ---
 async function main() {
+  await seedOrgSettings(); 
   await seedDrivers();
   await seedJobs();
 }

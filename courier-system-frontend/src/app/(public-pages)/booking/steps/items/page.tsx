@@ -1,30 +1,29 @@
-// src/app/(public-pages)/booking/steps/items.tsx
+// src/app/(public-pages)/booking/steps/items/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 
 import { StepLayout } from "@/components/wizard/StepLayout";
 import { FormField } from "@/components/forms/FormField";
-import {
-  useBooking,
-  DeliveryItem,
-  ItemCategory,
-} from "@/lib/booking-store";
-import {
-  itemSchema,
-  ItemFormSchema,
-} from "@/lib/validation/item";
+import { useBooking, DeliveryItem, ItemCategory } from "@/lib/booking-store";
+import { itemSchema } from "@/lib/validation/item";
+
+type ItemFormValues = z.input<typeof itemSchema>;
+
 
 let itemIdCounter = 1;
 const nextItemId = () => `I-${itemIdCounter++}`;
 
-type EditingState = {
-  deliveryId: string;
-  itemId?: string; // present if editing existing
-} | null;
+type EditingState =
+  | {
+      deliveryId: string;
+      itemId?: string;
+    }
+  | null;
 
 const categoryOptions: { id: ItemCategory; label: string }[] = [
   { id: "document", label: "Document" },
@@ -37,14 +36,12 @@ const categoryOptions: { id: ItemCategory; label: string }[] = [
   { id: "other", label: "Other" },
 ];
 
-// Helper to compute volumetric weight
 function computeVolumetricWeight(
   lengthCm: number,
   widthCm: number,
   heightCm: number
 ) {
   if (!lengthCm || !widthCm || !heightCm) return 0;
-  // Standard formula: (L x W x H) / 5000
   return Math.round(((lengthCm * widthCm * heightCm) / 5000) * 100) / 100;
 }
 
@@ -63,8 +60,10 @@ function ItemModal({
     register,
     handleSubmit,
     watch,
-    formState: { errors },
-  } = useForm<ItemFormSchema>({
+    setError,
+    clearErrors,
+    formState: { errors, isSubmitting },
+  } = useForm<ItemFormValues>({
     resolver: zodResolver(itemSchema),
     defaultValues: existingItem
       ? {
@@ -76,8 +75,7 @@ function ItemModal({
           widthCm: existingItem.widthCm,
           heightCm: existingItem.heightCm,
           remarks: existingItem.remarks ?? "",
-          // NEW:
-        specialHandling: existingItem.specialHandling ?? false,
+          specialHandling: existingItem.specialHandling ?? false,
         }
       : {
           description: "",
@@ -90,6 +88,7 @@ function ItemModal({
           remarks: "",
           specialHandling: false,
         },
+    mode: "onTouched",
   });
 
   const length = watch("lengthCm") || 0;
@@ -97,41 +96,94 @@ function ItemModal({
   const height = watch("heightCm") || 0;
   const volWeight = computeVolumetricWeight(length, width, height);
 
-  const onSubmit = (data: ItemFormSchema) => {
+  const w = watch("weightKg") || 0;
+  useEffect(() => {
+    if (Number(w) > 0 || Number(volWeight) > 0) {
+      clearErrors(["weightKg", "lengthCm", "widthCm", "heightCm"]);
+    }
+  }, [w, volWeight, clearErrors]);
+
+  const inputBase =
+    "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 " +
+    "shadow-sm outline-none transition " +
+    "focus:border-sky-400 focus:ring-2 focus:ring-sky-400/30";
+
+  const smallBtn =
+    "inline-flex items-center justify-center rounded-lg px-3 py-2 text-sm font-semibold transition " +
+    "focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-2";
+
+  const onSubmit = (data: ItemFormValues) => {
+    const submittedVolWeight = computeVolumetricWeight(
+      Number(data.lengthCm || 0),
+      Number(data.widthCm || 0),
+      Number(data.heightCm || 0)
+    );
+
+    const actual = Number(data.weightKg || 0);
+    const vol = Number(submittedVolWeight || 0);
+
+    // ✅ Guard: don't allow BOTH actual and volumetric to be 0
+    if (actual <= 0 && vol <= 0) {
+      setError("weightKg", {
+        type: "manual",
+        message:
+          "Enter a non-zero actual weight OR dimensions (for volumetric weight).",
+      });
+      setError("lengthCm", {
+        type: "manual",
+        message: "Provide dimensions or actual weight.",
+      });
+      return;
+    }
+
+    clearErrors(["weightKg", "lengthCm", "widthCm", "heightCm"]);
+
     const id = existingItem?.id ?? nextItemId();
     const updatedItem: DeliveryItem = {
       id,
       deliveryId: editing.deliveryId,
       description: data.description,
       category: data.category,
-      quantity: data.quantity,
-      weightKg: data.weightKg,
-      lengthCm: data.lengthCm,
-      widthCm: data.widthCm,
-      heightCm: data.heightCm,
-      volumetricWeightKg: volWeight,
+      quantity: Number(data.quantity),
+      weightKg: Number(data.weightKg),
+      lengthCm: Number(data.lengthCm),
+      widthCm: Number(data.widthCm),
+      heightCm: Number(data.heightCm),
+      volumetricWeightKg: submittedVolWeight,
       remarks: data.remarks ?? "",
       specialHandling: data.specialHandling ?? false,
     };
 
     onSave(updatedItem);
+    onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
-      <div className="w-full max-w-md rounded-xl bg-white p-4 shadow-lg">
-        <h2 className="mb-1 text-sm font-semibold text-slate-900">
-          {editing.itemId ? "Edit Item" : "Add Item"}
-        </h2>
-        <p className="mb-3 text-[11px] text-slate-500">
-          For delivery point{" "}
-          <span className="font-mono text-slate-700">
-            {editing.deliveryId}
-          </span>
-        </p>
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-4">
+      <div className="w-full max-w-md rounded-2xl bg-white p-4 shadow-xl">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">
+              {editing.itemId ? "Edit Item" : "Add Item"}
+            </h2>
+            <p className="mt-0.5 text-xs text-slate-600">
+              For delivery point{" "}
+              <span className="font-mono font-semibold text-slate-800">
+                {editing.deliveryId}
+              </span>
+            </p>
+          </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
-          {/* Description */}
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+          >
+            ✕
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit(onSubmit)} className="mt-4 space-y-4">
           <FormField
             label="Item Description"
             required
@@ -140,21 +192,14 @@ function ItemModal({
             <input
               type="text"
               {...register("description")}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+              className={inputBase}
               placeholder="e.g. Laptop box, A4 documents, sample products"
             />
           </FormField>
 
-          {/* Category + Quantity */}
-          <div className="grid gap-2 md:grid-cols-2">
-            <FormField
-              label="Category"
-              error={errors.category?.message}
-            >
-              <select
-                {...register("category")}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-              >
+          <div className="grid gap-5 md:grid-cols-2">
+            <FormField label="Category" error={errors.category?.message}>
+              <select {...register("category")} className={inputBase}>
                 {categoryOptions.map((opt) => (
                   <option key={opt.id} value={opt.id}>
                     {opt.label}
@@ -163,115 +208,112 @@ function ItemModal({
               </select>
             </FormField>
 
-            <FormField
-              label="Quantity"
-              error={errors.quantity?.message}
-            >
+            <FormField label="Quantity" error={errors.quantity?.message}>
               <input
                 type="number"
                 min={1}
                 {...register("quantity", { valueAsNumber: true })}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                className={inputBase}
               />
             </FormField>
           </div>
 
-          {/* Weight + Dimensions */}
-          <div className="grid gap-2 md:grid-cols-2">
-            <FormField
-              label="Actual Weight (kg)"
-              error={errors.weightKg?.message}
-            >
+          <div className="grid gap-5 md:grid-cols-2">
+            <FormField label="Actual Weight (kg)" error={errors.weightKg?.message}>
               <input
                 type="number"
                 min={0}
                 step={0.1}
                 {...register("weightKg", { valueAsNumber: true })}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                className={inputBase}
               />
             </FormField>
 
             <FormField
               label="Dimensions (cm)"
               error={
-                errors.lengthCm?.message ||
-                errors.widthCm?.message ||
-                errors.heightCm?.message
+                (errors.lengthCm as any)?.message ||
+                (errors.widthCm as any)?.message ||
+                (errors.heightCm as any)?.message
               }
             >
-              <div className="flex gap-1">
+              <div className="flex gap-1.5">
                 <input
                   type="number"
                   min={0}
                   placeholder="L"
                   {...register("lengthCm", { valueAsNumber: true })}
-                  className="w-1/3 rounded-lg border border-slate-200 px-2 py-2 text-xs focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                  className={inputBase + " px-3"}
                 />
                 <input
                   type="number"
                   min={0}
                   placeholder="W"
                   {...register("widthCm", { valueAsNumber: true })}
-                  className="w-1/3 rounded-lg border border-slate-200 px-2 py-2 text-xs focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                  className={inputBase + " px-3"}
                 />
                 <input
                   type="number"
                   min={0}
                   placeholder="H"
                   {...register("heightCm", { valueAsNumber: true })}
-                  className="w-1/3 rounded-lg border border-slate-200 px-2 py-2 text-xs focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                  className={inputBase + " px-3"}
                 />
               </div>
-              <p className="text-[10px] text-slate-500">
+
+              <p className="mt-1 text-xs text-slate-500">
                 Volumetric weight (L × W × H ÷ 5000):{" "}
-                <span className="font-semibold">{volWeight} kg</span>
+                <span className="font-semibold text-slate-900">{volWeight} kg</span>
               </p>
             </FormField>
           </div>
 
-          {/* Remarks */}
-          <FormField
-            label="Special Handling / Remarks"
-            description="Optional"
-          >
+          <FormField label="Special Handling / Remarks" description="Optional">
             <textarea
               rows={2}
               {...register("remarks")}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+              className={inputBase + " resize-none"}
               placeholder="e.g. Fragile – handle with care, do not stack, keep upright…"
             />
-            {/* Special handling checkbox */}
-            <div className="flex items-start gap-2">
-              <input
-                type="checkbox"
-                id="specialHandling"
-                {...register("specialHandling")}
-                className="mt-0.5 h-3 w-3 rounded border-slate-300 text-sky-600 
-                          focus:ring-sky-500"
-              />
-              <label
-                htmlFor="specialHandling"
-                className="text-[11px] text-slate-700"
-              >
-                Special handling required (e.g. temperature sensitive, fragile setup,
-                on-site unpacking). This may incur additional charges.
+
+            <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <label className="flex items-start gap-2 text-xs text-slate-700">
+                <input
+                  type="checkbox"
+                  {...register("specialHandling")}
+                  className="mt-1 h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-2 focus:ring-sky-400/30"
+                />
+                <span>
+                  <span className="font-semibold text-slate-900">
+                    Special handling required
+                  </span>{" "}
+                  (e.g. temperature sensitive, fragile setup, on-site unpacking). This
+                  may incur additional charges.
+                </span>
               </label>
             </div>
-
           </FormField>
 
-          {/* Buttons */}
-          <div className="mt-3 flex items-center justify-between">
+          <div className="flex items-center justify-between pt-1">
             <button
               type="button"
               onClick={onClose}
-              className="text-xs text-slate-600 hover:text-slate-800"
+              className={
+                smallBtn +
+                " border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+              }
             >
               Cancel
             </button>
+
             <button
               type="submit"
-              className="inline-flex items-center rounded-lg bg-sky-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-1"
+              disabled={isSubmitting}
+              className={[
+                smallBtn,
+                "bg-sky-600 text-white hover:bg-sky-700",
+                "disabled:cursor-not-allowed disabled:opacity-60",
+              ].join(" ")}
             >
               Save Item
             </button>
@@ -284,43 +326,43 @@ function ItemModal({
 
 export default function ItemsStep() {
   const router = useRouter();
-  const {
-    serviceType,
-    routeType,
-    pickup,
-    deliveries,
-    items,
-    setItems,
-  } = useBooking();
 
-  // 🛡 Wizard guards
+  // ✅ Support BOTH new store (pickups array) and old store (pickup single)
+  const booking = useBooking() as any;
+
+  const serviceType = booking.serviceType as string | null;
+  const routeType = booking.routeType as string | null;
+
+  const pickups = (booking.pickups as any[] | undefined) ?? []; // new flow
+  const pickup = (booking.pickup as any | null) ?? null;        // legacy flow
+
+  const deliveries = (booking.deliveries as any[] | undefined) ?? [];
+  const items = (booking.items as DeliveryItem[] | undefined) ?? [];
+  const setItems = booking.setItems as (items: DeliveryItem[]) => void;
+
+  // ✅ Prevent redirect before client hydration finishes
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
+
   useEffect(() => {
-    if (!serviceType) {
-      router.replace("/booking/steps/delivery-type");
-      return;
-    }
-    if (!routeType) {
-      router.replace("/booking/steps/route-type");
-      return;
-    }
-    if (!pickup) {
-      router.replace("/booking/steps/pickup");
-      return;
-    }
-    if (!deliveries || deliveries.length === 0) {
-      router.replace("/booking/steps/deliveries");
-      return;
-    }
-  }, [serviceType, routeType, pickup, deliveries, router]);
+    if (!hydrated) return;
+
+    if (!serviceType) return router.replace("/booking/steps/delivery-type");
+    if (!routeType) return router.replace("/booking/steps/route-type");
+
+    const hasPickup = (Array.isArray(pickups) && pickups.length > 0) || !!pickup;
+    if (!hasPickup) return router.replace("/booking/steps/pickup");
+
+    if (!deliveries || deliveries.length === 0)
+      return router.replace("/booking/steps/deliveries");
+  }, [hydrated, serviceType, routeType, pickups?.length, pickup, deliveries?.length, router]);
 
   const [localItems, setLocalItems] = useState<DeliveryItem[]>(() => items);
   const [editing, setEditing] = useState<EditingState>(null);
 
   const itemsByDelivery = useMemo(() => {
     const map: Record<string, DeliveryItem[]> = {};
-    for (const d of deliveries) {
-      map[d.id] = [];
-    }
+    for (const d of deliveries) map[d.id] = [];
     for (const item of localItems) {
       if (!map[item.deliveryId]) map[item.deliveryId] = [];
       map[item.deliveryId].push(item);
@@ -341,10 +383,6 @@ export default function ItemsStep() {
     router.push("/booking/steps/schedule");
   };
 
-  const handleBack = () => {
-    router.push("/booking/steps/deliveries");
-  };
-
   return (
     <StepLayout
       title="Items per Delivery"
@@ -353,44 +391,53 @@ export default function ItemsStep() {
       totalSteps={8}
       backHref="/booking/steps/deliveries"
     >
-      <div className="space-y-6">
-        <div className="space-y-3">
+      <div className="space-y-8">
+        <div className="space-y-4">
           {deliveries.map((d, index) => {
             const itemsForDelivery = itemsByDelivery[d.id] ?? [];
+
             return (
               <div
                 key={d.id}
-                className="space-y-3 rounded-xl border border-slate-200 bg-white p-4"
+                className="space-y-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
               >
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <h2 className="text-sm font-semibold text-slate-800">
+                    <h2 className="text-lg font-semibold text-slate-900">
                       Delivery Point #{index + 1}
                     </h2>
-                    <p className="text-xs text-slate-600">
+                    <p className="mt-1 text-sm text-slate-600">
                       {d.addressLine1}
-                      {d.addressLine2 ? `, ${d.addressLine2}` : ""} (
-                      {d.postalCode})
+                      {d.addressLine2 ? `, ${d.addressLine2}` : ""} ({d.postalCode})
                     </p>
-                    <p className="text-[11px] text-slate-500">
-                      Recipient: {d.contactName} · {d.contactPhone}
+                    <p className="mt-1 text-sm text-slate-600">
+                      Recipient:{" "}
+                      <span className="font-semibold text-slate-800">
+                        {d.contactName}
+                      </span>{" "}
+                      · {d.contactPhone}
                     </p>
                   </div>
+
                   <button
                     type="button"
                     onClick={() => setEditing({ deliveryId: d.id })}
-                    className="inline-flex items-center rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-sky-400 hover:text-sky-700"
+                    className={[
+                      "inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 py-3",
+                      "text-sm font-semibold text-slate-700 transition hover:border-sky-400 hover:text-sky-700 hover:shadow-sm",
+                      "focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-2",
+                    ].join(" ")}
                   >
                     + Add Item
                   </button>
                 </div>
 
                 {itemsForDelivery.length === 0 ? (
-                  <p className="text-xs text-slate-500">
+                  <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm text-slate-600">
                     No items added for this delivery yet.
-                  </p>
+                  </div>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     {itemsForDelivery.map((item) => {
                       const billable =
                         item.volumetricWeightKg &&
@@ -401,36 +448,37 @@ export default function ItemsStep() {
                       return (
                         <div
                           key={item.id}
-                          className="flex items-start justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                          className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:items-start sm:justify-between"
                         >
-                          <div className="text-xs">
-                            <p className="font-medium text-slate-800">
+                          <div className="text-sm text-slate-700">
+                            <p className="font-semibold text-slate-900">
                               {item.description || "(No description)"}
                             </p>
-                            <p className="text-[11px] text-slate-600">
+                            <p className="mt-1 text-sm text-slate-600">
                               Category: {item.category} · Qty: {item.quantity}
                             </p>
-                            <p className="text-[11px] text-slate-600">
+                            <p className="mt-1 text-sm text-slate-600">
                               Actual: {item.weightKg || 0} kg · Vol:{" "}
-                              {item.volumetricWeightKg || 0} kg · Billable:{" "}
-                              {billable || 0} kg
+                              {item.volumetricWeightKg || 0} kg ·{" "}
+                              <span className="font-semibold text-slate-800">
+                                Billable: {billable || 0} kg
+                              </span>
                             </p>
 
-                            {/* ✅ Special handling badge goes here */}
                             {item.specialHandling && (
-                              <p className="text-[11px] text-amber-700">
+                              <p className="mt-2 text-sm font-semibold text-amber-700">
                                 ⚠ Special handling required
                               </p>
                             )}
 
-
                             {item.remarks && (
-                              <p className="text-[11px] text-slate-500">
+                              <p className="mt-1 text-sm text-slate-600">
                                 Remarks: {item.remarks}
                               </p>
                             )}
                           </div>
-                          <div className="flex flex-col items-end gap-1">
+
+                          <div className="flex items-center gap-3 sm:flex-col sm:items-end">
                             <button
                               type="button"
                               onClick={() =>
@@ -439,14 +487,14 @@ export default function ItemsStep() {
                                   itemId: item.id,
                                 })
                               }
-                              className="text-[11px] text-sky-600 hover:text-sky-700"
+                              className="text-sm font-semibold text-sky-700 hover:text-sky-800"
                             >
                               Edit
                             </button>
                             <button
                               type="button"
                               onClick={() => handleRemoveItem(item.id)}
-                              className="text-[11px] text-red-500 hover:text-red-600"
+                              className="text-sm font-semibold text-rose-700 hover:text-rose-800"
                             >
                               Remove
                             </button>
@@ -461,25 +509,21 @@ export default function ItemsStep() {
           })}
         </div>
 
-        <div className="flex items-center justify-between">
-          <button
-            type="button"
-            onClick={handleBack}
-            className="text-xs text-slate-600 hover:text-slate-800"
-          >
-            ← Back to Delivery Points
-          </button>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
           <button
             type="button"
             onClick={handleNext}
-            className="inline-flex items-center rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-1"
+            className={[
+              "inline-flex items-center justify-center rounded-xl bg-sky-600 px-6 py-3",
+              "text-base font-semibold text-white shadow-sm transition",
+              "hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-2",
+            ].join(" ")}
           >
             Continue to Schedule →
           </button>
         </div>
       </div>
 
-      {/* Modal */}
       {editing && (
         <ItemModal
           editing={editing}
@@ -492,11 +536,10 @@ export default function ItemsStep() {
           onSave={(updatedItem) => {
             setLocalItems((prev) => {
               const exists = prev.some((i) => i.id === updatedItem.id);
-              if (exists) {
+              if (exists)
                 return prev.map((i) =>
                   i.id === updatedItem.id ? updatedItem : i
                 );
-              }
               return [...prev, updatedItem];
             });
           }}

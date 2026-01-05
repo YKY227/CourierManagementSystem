@@ -17,6 +17,7 @@ export type RouteType =
   | null;
 
 export interface PickupLocation {
+  id: string;
   companyName: string;
   contactName: string;
   contactPhone: string;
@@ -73,13 +74,13 @@ export interface ScheduleInfo {
 interface BookingState {
   serviceType: ServiceType;
   routeType: RouteType;
-  pickup: PickupLocation | null;
+  pickups: PickupLocation[];  
   deliveries: DeliveryPoint[];
   items: DeliveryItem[];
   schedule: ScheduleInfo | null;
   setServiceType: (type: ServiceType) => void;
   setRouteType: (type: RouteType) => void;
-  setPickup: (pickup: PickupLocation) => void;
+    setPickups: (pickups: PickupLocation[]) => void;
   setDeliveries: (deliveries: DeliveryPoint[]) => void;
   setItems: (items: DeliveryItem[]) => void;
   setSchedule: (schedule: ScheduleInfo) => void;
@@ -88,7 +89,9 @@ interface BookingState {
 
 const BookingContext = createContext<BookingState | undefined>(undefined);
 
-const emptyPickup: PickupLocation = {
+// helper
+const emptyPickup = (): PickupLocation => ({
+  id: `P-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
   companyName: "",
   contactName: "",
   contactPhone: "",
@@ -98,18 +101,18 @@ const emptyPickup: PickupLocation = {
   postalCode: "",
   remarks: "",
   saveAsFavorite: true,
-};
+});
 
 export function BookingProvider({ children }: { children: ReactNode }) {
   const [serviceType, setServiceType] = useState<ServiceType>(null);
   const [routeType, setRouteType] = useState<RouteType>(null);
-  const [pickup, setPickupState] = useState<PickupLocation | null>(null);
+  const [pickups, setPickupsState] = useState<PickupLocation[]>([]);
   const [deliveries, setDeliveriesState] = useState<DeliveryPoint[]>([]);
   const [items, setItemsState] = useState<DeliveryItem[]>([]);
   const [schedule, setScheduleState] = useState<ScheduleInfo | null>(null);
 
-  const setPickup = (p: PickupLocation) => {
-    setPickupState({ ...p });
+  const setPickups = (list: PickupLocation[]) => {
+    setPickupsState(list.map((p) => ({ ...p })));
   };
 
   const setDeliveries = (list: DeliveryPoint[]) => {
@@ -127,7 +130,7 @@ export function BookingProvider({ children }: { children: ReactNode }) {
   const resetBooking = () => {
     setServiceType(null);
     setRouteType(null);
-    setPickupState(null);
+    setPickupsState([]); 
     setDeliveriesState([]);
     setItemsState([]);
     setScheduleState(null);
@@ -138,13 +141,13 @@ export function BookingProvider({ children }: { children: ReactNode }) {
       value={{
         serviceType,
         routeType,
-        pickup,
+        pickups,
         deliveries,
         items,
         schedule,
         setServiceType,
         setRouteType,
-        setPickup,
+        setPickups,
         setDeliveries,
         setItems,
         setSchedule,
@@ -166,7 +169,7 @@ export function useBooking() {
 
 // Helpers to create blank structs
 export function createEmptyPickup(): PickupLocation {
-  return { ...emptyPickup };
+  return emptyPickup();
 }
 
 export function createEmptyDelivery(id: string): DeliveryPoint {

@@ -7,11 +7,11 @@ import {
   fetchAdminJobsPaged,
   autoAssignJobOnBackend,
   deleteAdminJob,
-  bulkDeleteAdminJobsByStatus,AdminJobDetailDto,
-  fetchAdminCompletedJobDetail 
+  bulkDeleteAdminJobsByStatus,
+  AdminJobDetailDto,
+  fetchAdminCompletedJobDetail,
 } from "@/lib/api/admin";
 import { JobDetailModal } from "@/components/admin/JobDetailModal";
-
 
 import { useUnifiedJobs } from "@/lib/unified-jobs-store";
 import { useAppSettings } from "@/lib/app-settings";
@@ -19,7 +19,6 @@ import { useAppSettings } from "@/lib/app-settings";
 import type {
   JobSummary,
   JobStatus,
-  JobType,
   AssignmentMode,
   RegionCode,
   Driver,
@@ -116,9 +115,7 @@ function PaginationBar({
 function TableSkeleton({ rows = 6, cols = 6 }: { rows?: number; cols?: number }) {
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-      <div className="bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600">
-        Loading…
-      </div>
+      <div className="bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600">Loading…</div>
       <div className="divide-y divide-slate-100">
         {Array.from({ length: rows }).map((_, r) => (
           <div key={r} className="grid grid-cols-12 gap-2 px-3 py-3">
@@ -132,30 +129,12 @@ function TableSkeleton({ rows = 6, cols = 6 }: { rows?: number; cols?: number })
   );
 }
 
-function jobTypeBadge(type: JobType) {
-  const base = "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium";
-  if (type === "scheduled") {
-    return (
-      <span className={`${base} bg-sky-50 text-sky-700 ring-1 ring-sky-100`}>
-        Scheduled
-      </span>
-    );
-  }
-  return (
-    <span className={`${base} bg-amber-50 text-amber-700 ring-1 ring-amber-100`}>
-      Ad-hoc / Urgent
-    </span>
-  );
-}
-
 function statusBadge(status: JobStatus) {
   const base = "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium";
   switch (status) {
     case "booked":
       return (
-        <span className={`${base} bg-slate-50 text-slate-700 ring-1 ring-slate-200`}>
-          Booked
-        </span>
+        <span className={`${base} bg-slate-50 text-slate-700 ring-1 ring-slate-200`}>Booked</span>
       );
     case "pending-assignment":
       return (
@@ -165,51 +144,35 @@ function statusBadge(status: JobStatus) {
       );
     case "assigned":
       return (
-        <span className={`${base} bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200`}>
-          Assigned
-        </span>
+        <span className={`${base} bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200`}>Assigned</span>
       );
     case "out-for-pickup":
       return (
-        <span className={`${base} bg-blue-50 text-blue-700 ring-1 ring-blue-200`}>
-          Out for pickup
-        </span>
+        <span className={`${base} bg-blue-50 text-blue-700 ring-1 ring-blue-200`}>Out for pickup</span>
       );
     case "in-transit":
       return (
-        <span className={`${base} bg-cyan-50 text-cyan-700 ring-1 ring-cyan-200`}>
-          In transit
-        </span>
+        <span className={`${base} bg-cyan-50 text-cyan-700 ring-1 ring-cyan-200`}>In transit</span>
       );
     case "completed":
       return (
-        <span className={`${base} bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200`}>
-          Completed
-        </span>
+        <span className={`${base} bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200`}>Completed</span>
       );
     case "failed":
       return (
-        <span className={`${base} bg-red-50 text-red-700 ring-1 ring-red-200`}>
-          Failed
-        </span>
+        <span className={`${base} bg-red-50 text-red-700 ring-1 ring-red-200`}>Failed</span>
       );
     case "cancelled":
       return (
-        <span className={`${base} bg-slate-100 text-slate-500 ring-1 ring-slate-200`}>
-          Cancelled
-        </span>
+        <span className={`${base} bg-slate-100 text-slate-500 ring-1 ring-slate-200`}>Cancelled</span>
       );
     case "returned":
       return (
-        <span className={`${base} bg-purple-50 text-purple-700 ring-1 ring-purple-200`}>
-          Returned
-        </span>
+        <span className={`${base} bg-purple-50 text-purple-700 ring-1 ring-purple-200`}>Returned</span>
       );
     default:
       return (
-        <span className={`${base} bg-slate-50 text-slate-700 ring-1 ring-slate-200`}>
-          {status}
-        </span>
+        <span className={`${base} bg-slate-50 text-slate-700 ring-1 ring-slate-200`}>{status}</span>
       );
   }
 }
@@ -218,9 +181,7 @@ function assignmentModeBadge(mode: AssignmentMode | undefined) {
   const base = "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium";
   if (!mode) {
     return (
-      <span className={`${base} bg-slate-50 text-slate-500 ring-1 ring-slate-200`}>
-        Not assigned
-      </span>
+      <span className={`${base} bg-slate-50 text-slate-500 ring-1 ring-slate-200`}>Not assigned</span>
     );
   }
   if (mode === "auto") {
@@ -231,9 +192,74 @@ function assignmentModeBadge(mode: AssignmentMode | undefined) {
     );
   }
   return (
-    <span className={`${base} bg-sky-50 text-sky-700 ring-1 ring-sky-200`}>
-      Manual assign
-    </span>
+    <span className={`${base} bg-sky-50 text-sky-700 ring-1 ring-sky-200`}>Manual assign</span>
+  );
+}
+
+/**
+ * Delivery type badge:
+ * show original values: "express-3h" | "same-day" | "next-day"
+ * - express-3h is stronger color
+ */
+function deliveryTypeBadge(deliveryType?: string) {
+  const base = "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium";
+  const dt = (deliveryType ?? "").toLowerCase();
+
+  if (!dt) {
+    return <span className={`${base} bg-slate-50 text-slate-500 ring-1 ring-slate-200`}>-</span>;
+  }
+
+  if (dt === "express-3h") {
+    return (
+      <span className={`${base} bg-rose-50 text-rose-800 ring-1 ring-rose-200`}>
+        ⚡ {deliveryType}
+      </span>
+    );
+  }
+
+  if (dt === "same-day") {
+    return (
+      <span className={`${base} bg-amber-50 text-amber-800 ring-1 ring-amber-200`}>{deliveryType}</span>
+    );
+  }
+
+  if (dt === "next-day") {
+    return (
+      <span className={`${base} bg-sky-50 text-sky-800 ring-1 ring-sky-200`}>{deliveryType}</span>
+    );
+  }
+
+  // fallback (in case backend adds more later)
+  return (
+    <span className={`${base} bg-slate-50 text-slate-700 ring-1 ring-slate-200`}>{deliveryType}</span>
+  );
+}
+
+/**
+ * Route type badge:
+ * expected values: "one-to-many" | "many-to-one" | "round-trip" (or anything else)
+ */
+function routeTypeBadge(routeType?: string) {
+  const base = "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium";
+  const rt = (routeType ?? "").toLowerCase();
+
+  if (!rt) {
+    return <span className={`${base} bg-slate-50 text-slate-500 ring-1 ring-slate-200`}>-</span>;
+  }
+
+  const labelMap: Record<string, string> = {
+    "one-to-many": "1 → many",
+    "one_to_many": "1 → many",
+    "many-to-one": "many → 1",
+    "many_to_one": "many → 1",
+    "round-trip": "round trip",
+    "round_trip": "round trip",
+  };
+
+  const label = labelMap[rt] ?? routeType;
+
+  return (
+    <span className={`${base} bg-slate-100 text-slate-700 ring-1 ring-slate-200`}>{label}</span>
   );
 }
 
@@ -262,13 +288,10 @@ export default function AdminJobsPage() {
   const [activeRows, setActiveRows] = useState<JobSummary[]>([]);
   const [completedRows, setCompletedRows] = useState<JobSummary[]>([]);
 
-
-
-const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
-const [detail, setDetail] = useState<AdminJobDetailDto | null>(null);
-const [detailLoading, setDetailLoading] = useState(false);
-const [detailError, setDetailError] = useState<string | null>(null);
-
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<AdminJobDetailDto | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   const [pendingPage, setPendingPage] = useState(1);
   const [activePage, setActivePage] = useState(1);
@@ -280,12 +303,8 @@ const [detailError, setDetailError] = useState<string | null>(null);
   const [assignModal, setAssignModal] = useState<AssignModalState>({ open: false, job: null });
   const [selectedDriverId, setSelectedDriverId] = useState<string>("");
 
-  const [assignmentConfig] = useState<AssignmentConfig>(() =>
-    structuredClone(defaultAssignmentConfig)
-  );
-  const [lastAutoAssignSummary, setLastAutoAssignSummary] = useState<AutoAssignSummary | null>(
-    null
-  );
+  const [assignmentConfig] = useState<AssignmentConfig>(() => structuredClone(defaultAssignmentConfig));
+  const [lastAutoAssignSummary, setLastAutoAssignSummary] = useState<AutoAssignSummary | null>(null);
 
   const [debugDrawer, setDebugDrawer] = useState<{
     open: boolean;
@@ -298,36 +317,31 @@ const [detailError, setDetailError] = useState<string | null>(null);
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
-  const activeDrivers = useMemo(
-    () => drivers.filter((d: Driver) => d.isActive),
-    [drivers]
-  );
+  const activeDrivers = useMemo(() => drivers.filter((d: Driver) => d.isActive), [drivers]);
 
- const handleOpenDetail = async (job: JobSummary) => {
-  setSelectedJobId(job.id);
-  setDetail(null);
-  setDetailError(null);
-  setDetailLoading(true);
+  const handleOpenDetail = async (job: JobSummary) => {
+    setSelectedJobId(job.id);
+    setDetail(null);
+    setDetailError(null);
+    setDetailLoading(true);
 
-  try {
-    const data = await fetchAdminCompletedJobDetail(job.id);
-    setDetail(data);
-  } catch (err: any) {
-    console.error("Failed to load job detail", err);
-    setDetailError(err?.message ?? "Failed to load job detail");
-  } finally {
+    try {
+      const data = await fetchAdminCompletedJobDetail(job.id);
+      setDetail(data);
+    } catch (err: any) {
+      console.error("Failed to load job detail", err);
+      setDetailError(err?.message ?? "Failed to load job detail");
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const handleCloseDetail = () => {
+    setSelectedJobId(null);
+    setDetail(null);
+    setDetailError(null);
     setDetailLoading(false);
-  }
-};
-
-const handleCloseDetail = () => {
-  setSelectedJobId(null);
-  setDetail(null);
-  setDetailError(null);
-  setDetailLoading(false);
-};
-
-
+  };
 
   // ─────────────────────────────────────────────
   // Backend pagination loader (3 sections)
@@ -393,20 +407,11 @@ const handleCloseDetail = () => {
   );
 
   const localActiveJobs = useMemo(
-    () =>
-      localJobs.filter(
-        (j) =>
-          j.status !== "pending-assignment" &&
-          j.status !== "completed" &&
-          j.status !== "cancelled"
-      ),
+    () => localJobs.filter((j) => j.status !== "pending-assignment" && j.status !== "completed" && j.status !== "cancelled"),
     [localJobs]
   );
 
-  const localCompletedJobs = useMemo(
-    () => localJobs.filter((j) => j.status === "completed"),
-    [localJobs]
-  );
+  const localCompletedJobs = useMemo(() => localJobs.filter((j) => j.status === "completed"), [localJobs]);
 
   // Reset local pages when local dataset changes (only matters in fallback mode)
   useEffect(() => {
@@ -513,17 +518,13 @@ const handleCloseDetail = () => {
       setCompletedRows(c.data as JobSummary[]);
       setCompletedTotal(c.total);
     } catch (e) {
-      // ignore; status badge already shows backend error if it’s down
       console.warn("[AdminJobsPage] refreshCurrentPages failed", e);
     }
   }, [pendingPage, activePage, completedPage]);
 
   const updateAssignmentLocal = useCallback(
     async (opts: { jobId: string; driverId: string | null; status: JobStatus; mode: AssignmentMode }) => {
-      // unified store is still used (your existing logic)
       await setJobAssignment(opts);
-
-      // If backend is enabled, refresh current pages so UI is correct
       await refreshCurrentPages();
     },
     [setJobAssignment, refreshCurrentPages]
@@ -556,7 +557,7 @@ const handleCloseDetail = () => {
 
   // Fetch ALL pending jobs across pages (backend mode) before auto-assigning.
   async function fetchAllPendingJobs(): Promise<JobSummary[]> {
-    const pageSize = 100; // fewer round-trips
+    const pageSize = 100;
     const first = await fetchAdminJobsPaged({ status: "pending", page: 1, pageSize });
     const total = first.total;
     const out: JobSummary[] = [...(first.data as JobSummary[])];
@@ -570,10 +571,7 @@ const handleCloseDetail = () => {
   }
 
   const handleAutoAssignPending = async () => {
-    // In backend mode, auto-assign all pending jobs across ALL pages.
-    // In local mode, auto-assign based on local dataset.
     const pendingList = USE_BACKEND ? await fetchAllPendingJobs() : localPendingJobs;
-
     const pending = pendingList.filter((j) => j.status === "pending-assignment");
 
     if (pending.length === 0) {
@@ -588,8 +586,7 @@ const handleCloseDetail = () => {
       for (const job of pending) {
         try {
           const updated = await autoAssignJobOnBackend(job.id);
-          const backendDriverId =
-            (updated as any).driverId ?? (updated as any).currentDriverId ?? null;
+          const backendDriverId = (updated as any).driverId ?? (updated as any).currentDriverId ?? null;
 
           if (!backendDriverId) failed++;
           else assigned++;
@@ -600,8 +597,6 @@ const handleCloseDetail = () => {
       }
 
       setLastAutoAssignSummary({ total: pending.length, assigned, failed });
-
-      // refresh current pages so UI reflects the latest assignments
       await refreshCurrentPages();
       return;
     }
@@ -621,9 +616,7 @@ const handleCloseDetail = () => {
     let failed = 0;
 
     for (const job of pending) {
-      const scores = scoreDriversForJob(job, activeDrivers, assignmentConfig, {
-        driverJobCounts: tempCounts,
-      });
+      const scores = scoreDriversForJob(job, activeDrivers, assignmentConfig, { driverJobCounts: tempCounts });
       const best = pickBestDriver(scores);
 
       if (best) {
@@ -656,9 +649,7 @@ const handleCloseDetail = () => {
       setIsDeletingId(jobId);
       await deleteAdminJob(jobId);
 
-      if (USE_BACKEND) {
-        await refreshCurrentPages();
-      }
+      if (USE_BACKEND) await refreshCurrentPages();
     } catch (e: any) {
       console.error(e);
       alert(e?.message ?? "Failed to delete job");
@@ -675,13 +666,10 @@ const handleCloseDetail = () => {
 
     try {
       setIsBulkDeleting(true);
-
-      // For now: 2 calls to clear both pending-assignment + booked
       await bulkDeleteAdminJobsByStatus("pending-assignment");
       await bulkDeleteAdminJobsByStatus("booked");
 
       if (USE_BACKEND) {
-        // reset to first page to avoid empty-page edge case
         setPendingPage(1);
         await refreshCurrentPages();
       }
@@ -715,13 +703,6 @@ const handleCloseDetail = () => {
     }
   };
 
-  // ─────────────────────────────────────────────
-  // Row click helper
-  // ─────────────────────────────────────────────
-  // const goToJobDetail = (jobId: string) => {
-  //   router.push(`/admin/jobs/${jobId}`);
-  // };
-
   const isLoadingTables = USE_BACKEND && backendStatus === "loading";
 
   // ─────────────────────────────────────────────
@@ -734,7 +715,7 @@ const handleCloseDetail = () => {
           <div>
             <h1 className="text-2xl font-semibold text-slate-900">Jobs Overview</h1>
             <p className="mt-1 text-sm text-slate-600">
-              Monitor scheduled and ad-hoc jobs, and manually or automatically assign drivers.
+              Monitor jobs, and manually or automatically assign drivers.
             </p>
 
             <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
@@ -850,8 +831,8 @@ const handleCloseDetail = () => {
 
               {lastAutoAssignSummary && (
                 <p className="text-[10px] text-slate-500">
-                  Last run: {lastAutoAssignSummary.assigned} assigned, {lastAutoAssignSummary.failed} still pending
-                  (of {lastAutoAssignSummary.total} jobs).
+                  Last run: {lastAutoAssignSummary.assigned} assigned, {lastAutoAssignSummary.failed} still pending (of{" "}
+                  {lastAutoAssignSummary.total} jobs).
                 </p>
               )}
             </div>
@@ -871,95 +852,110 @@ const handleCloseDetail = () => {
                     <th className="px-3 py-2 text-left font-medium text-slate-600">Job</th>
                     <th className="px-3 py-2 text-left font-medium text-slate-600">Customer</th>
                     <th className="px-3 py-2 text-left font-medium text-slate-600">Pickup</th>
-                    <th className="px-3 py-2 text-left font-medium text-slate-600">Type</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600">Delivery / Route</th>
                     <th className="px-3 py-2 text-left font-medium text-slate-600">Stops / Weight</th>
                     <th className="px-3 py-2 text-right font-medium text-slate-600">Actions</th>
                   </tr>
                 </thead>
 
                 <tbody className="divide-y divide-slate-100 bg-white">
-                  {pendingShown.map((job) => (
-                    <tr
-                      key={job.id}
-                      onClick={() => handleOpenDetail(job)}
-                      className="group cursor-pointer hover:bg-slate-50"
-                    >
-                      <td className="relative px-3 py-2 align-top">
-                        {developerMode && (
-                          <button
-                            type="button"
-                            title="Delete job (dev)"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteOne(job.id);
-                            }}
-                            disabled={isDeletingId === job.id}
-                            className="absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-[12px] font-bold text-rose-700 opacity-0 hover:bg-rose-100 disabled:opacity-60 group-hover:opacity-100"
-                          >
-                            ×
-                          </button>
-                        )}
+                  {pendingShown.map((job) => {
+                  const delivery = (job as any).serviceType ?? null;
+  const route = (job as any).routeType ?? null;
 
-                        <div className="font-mono text-[11px] text-slate-800">{job.publicId}</div>
-                        <div className="mt-1">
-                          {statusBadge(job.status)}{" "}
-                          <span className="ml-1 inline-block">{assignmentModeBadge(job.assignmentMode)}</span>
-                        </div>
-                      </td>
+  // snapshot logging (no live reference confusion)
+  console.log("[Pending] delivery/route snapshot:", delivery, route);
+  // optional: immutable snapshot of whole object
+  // console.log("[Pending] job snapshot:", JSON.parse(JSON.stringify(job)));ined;
+
+ 
+                    return (
+                      <tr
+                        key={job.id}
+                        onClick={() => handleOpenDetail(job)}
+                        className="group cursor-pointer hover:bg-slate-50"
+                      >
+                        <td className="relative px-3 py-2 align-top">
+                          {developerMode && (
+                            <button
+                              type="button"
+                              title="Delete job (dev)"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteOne(job.id);
+                              }}
+                              disabled={isDeletingId === job.id}
+                              className="absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-[12px] font-bold text-rose-700 opacity-0 hover:bg-rose-100 disabled:opacity-60 group-hover:opacity-100"
+                            >
+                              ×
+                            </button>
+                          )}
+
+                          <div className="font-mono text-[11px] text-slate-800">{job.publicId}</div>
+                          <div className="mt-1">
+                            {statusBadge(job.status)}{" "}
+                            <span className="ml-1 inline-block">{assignmentModeBadge(job.assignmentMode)}</span>
+                          </div>
+                        </td>
+
+                        <td className="px-3 py-2 align-top">
+                          <div className="text-xs font-medium text-slate-900">{job.customerName}</div>
+                          <div className="text-[11px] text-slate-500">
+                            Created: {new Date(job.createdAt as any).toLocaleString("en-SG")}
+                          </div>
+                        </td>
+
+                        <td className="px-3 py-2 align-top">
+                          <div className="text-xs text-slate-800">{formatPickupDate(job.pickupDate)}</div>
+                          <div className="text-[11px] text-slate-600">{job.pickupSlot}</div>
+                          <div className="mt-0.5 text-[11px] text-slate-500">Region: {regionLabel(job.pickupRegion)}</div>
+                        </td>
 
                       <td className="px-3 py-2 align-top">
-                        <div className="text-xs font-medium text-slate-900">{job.customerName}</div>
-                        <div className="text-[11px] text-slate-500">
-                          Created: {new Date(job.createdAt as any).toLocaleString("en-SG")}
-                        </div>
-                      </td>
+  <div className="flex flex-wrap gap-1">
+    {deliveryTypeBadge(delivery)}
+    {routeTypeBadge(route)}
+  </div>
+</td>
 
-                      <td className="px-3 py-2 align-top">
-                        <div className="text-xs text-slate-800">{formatPickupDate(job.pickupDate)}</div>
-                        <div className="text-[11px] text-slate-600">{job.pickupSlot}</div>
-                        <div className="mt-0.5 text-[11px] text-slate-500">
-                          Region: {regionLabel(job.pickupRegion)}
-                        </div>
-                      </td>
 
-                      <td className="px-3 py-2 align-top">{jobTypeBadge(job.jobType)}</td>
+                        <td className="px-3 py-2 align-top">
+                          <div className="text-xs text-slate-800">
+                            {job.stopsCount} stop{job.stopsCount > 1 ? "s" : ""}
+                          </div>
+                          <div className="text-[11px] text-slate-500">
+                            {(Number(job.totalBillableWeightKg) || 0).toFixed(1)} kg billable
+                          </div>
+                        </td>
 
-                      <td className="px-3 py-2 align-top">
-                        <div className="text-xs text-slate-800">
-                          {job.stopsCount} stop{job.stopsCount > 1 ? "s" : ""}
-                        </div>
-                        <div className="text-[11px] text-slate-500">
-                          {(Number(job.totalBillableWeightKg) || 0).toFixed(1)} kg billable
-                        </div>
-                      </td>
+                        <td className="px-3 py-2 align-top text-right">
+                          <div className="inline-flex gap-1">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openAssignModal(job);
+                              }}
+                              className="inline-flex items-center rounded-lg bg-sky-600 px-3 py-1.5 text-[11px] font-medium text-white hover:bg-sky-700"
+                            >
+                              Assign driver…
+                            </button>
 
-                      <td className="px-3 py-2 align-top text-right">
-                        <div className="inline-flex gap-1">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openAssignModal(job);
-                            }}
-                            className="inline-flex items-center rounded-lg bg-sky-600 px-3 py-1.5 text-[11px] font-medium text-white hover:bg-sky-700"
-                          >
-                            Assign driver…
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openDebugDrawer(job);
-                            }}
-                            className="inline-flex items-center rounded-lg border border-slate-300 px-2 py-1 text-[10px] text-slate-600 hover:bg-slate-100"
-                          >
-                            Debug
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openDebugDrawer(job);
+                              }}
+                              className="inline-flex items-center rounded-lg border border-slate-300 px-2 py-1 text-[10px] text-slate-600 hover:bg-slate-100"
+                            >
+                              Debug
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
 
@@ -984,7 +980,7 @@ const handleCloseDetail = () => {
           </div>
 
           {isLoadingTables ? (
-            <TableSkeleton rows={6} cols={5} />
+            <TableSkeleton rows={6} cols={6} />
           ) : activeCount === 0 ? (
             <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-xs text-slate-500">
               No active jobs at the moment.
@@ -998,13 +994,15 @@ const handleCloseDetail = () => {
                     <th className="px-3 py-2 text-left font-medium text-slate-600">Customer</th>
                     <th className="px-3 py-2 text-left font-medium text-slate-600">Pickup</th>
                     <th className="px-3 py-2 text-left font-medium text-slate-600">Driver</th>
-                    <th className="px-3 py-2 text-left font-medium text-slate-600">Type</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600">Delivery / Route</th>
                   </tr>
                 </thead>
 
                 <tbody className="divide-y divide-slate-100 bg-white">
                   {activeShown.map((job) => {
                     const driver = job.driverId && drivers.find((d: Driver) => d.id === job.driverId);
+                  const delivery = (job as any).serviceType ?? null;
+                   const route = (job as any).routeType ?? null;
 
                     return (
                       <tr
@@ -1046,9 +1044,7 @@ const handleCloseDetail = () => {
                         <td className="px-3 py-2 align-top">
                           <div className="text-xs text-slate-800">{formatPickupDate(job.pickupDate)}</div>
                           <div className="text-[11px] text-slate-600">{job.pickupSlot}</div>
-                          <div className="mt-0.5 text-[11px] text-slate-500">
-                            Region: {regionLabel(job.pickupRegion)}
-                          </div>
+                          <div className="mt-0.5 text-[11px] text-slate-500">Region: {regionLabel(job.pickupRegion)}</div>
                         </td>
 
                         <td className="px-3 py-2 align-top">
@@ -1064,7 +1060,13 @@ const handleCloseDetail = () => {
                           )}
                         </td>
 
-                        <td className="px-3 py-2 align-top">{jobTypeBadge(job.jobType)}</td>
+                      <td className="px-3 py-2 align-top">
+  <div className="flex flex-wrap gap-1">
+    {deliveryTypeBadge(delivery)}
+    {routeTypeBadge(route)}
+  </div>
+</td>
+
                       </tr>
                     );
                   })}
@@ -1100,7 +1102,7 @@ const handleCloseDetail = () => {
           </div>
 
           {isLoadingTables ? (
-            <TableSkeleton rows={5} cols={3} />
+            <TableSkeleton rows={5} cols={4} />
           ) : completedCount === 0 ? (
             <p className="text-xs text-slate-500">No completed jobs in dataset.</p>
           ) : (
@@ -1111,52 +1113,64 @@ const handleCloseDetail = () => {
                     <th className="px-3 py-2 text-left font-medium text-slate-600">Job</th>
                     <th className="px-3 py-2 text-left font-medium text-slate-600">Customer</th>
                     <th className="px-3 py-2 text-left font-medium text-slate-600">Pickup</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600">Delivery / Route</th>
                   </tr>
                 </thead>
 
                 <tbody className="divide-y divide-slate-100 bg-white">
-                  {completedShown.map((job) => (
-                    <tr
-                      key={job.id}
-                      onClick={() => handleOpenDetail(job)}
-                      className="group cursor-pointer hover:bg-slate-50"
-                    >
-                      <td className="relative px-3 py-2 align-top">
-                        {developerMode && (
-                          <button
-                            type="button"
-                            title="Delete job (dev)"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteOne(job.id);
-                            }}
-                            disabled={isDeletingId === job.id}
-                            className="absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-[12px] font-bold text-rose-700 opacity-0 hover:bg-rose-100 disabled:opacity-60 group-hover:opacity-100"
-                          >
-                            ×
-                          </button>
-                        )}
+                  {completedShown.map((job) => {
+                  const delivery = (job as any).serviceType ?? null;
+  const route = (job as any).routeType ?? null;
+  
+                    return (
+                      <tr
+                        key={job.id}
+                        onClick={() => handleOpenDetail(job)}
+                        className="group cursor-pointer hover:bg-slate-50"
+                      >
+                        <td className="relative px-3 py-2 align-top">
+                          {developerMode && (
+                            <button
+                              type="button"
+                              title="Delete job (dev)"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteOne(job.id);
+                              }}
+                              disabled={isDeletingId === job.id}
+                              className="absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-[12px] font-bold text-rose-700 opacity-0 hover:bg-rose-100 disabled:opacity-60 group-hover:opacity-100"
+                            >
+                              ×
+                            </button>
+                          )}
 
-                        <div className="font-mono text-[11px] text-slate-800">{job.publicId}</div>
-                        <div className="mt-1">{statusBadge(job.status)}</div>
-                      </td>
+                          <div className="font-mono text-[11px] text-slate-800">{job.publicId}</div>
+                          <div className="mt-1">{statusBadge(job.status)}</div>
+                        </td>
 
-                      <td className="px-3 py-2 align-top">
-                        <div className="text-xs font-medium text-slate-900">{job.customerName}</div>
-                        <div className="text-[11px] text-slate-500">
-                          {job.stopsCount} stops · {(Number(job.totalBillableWeightKg) || 0).toFixed(1)} kg
-                        </div>
-                      </td>
+                        <td className="px-3 py-2 align-top">
+                          <div className="text-xs font-medium text-slate-900">{job.customerName}</div>
+                          <div className="text-[11px] text-slate-500">
+                            {job.stopsCount} stops · {(Number(job.totalBillableWeightKg) || 0).toFixed(1)} kg
+                          </div>
+                        </td>
 
-                      <td className="px-3 py-2 align-top">
-                        <div className="text-xs text-slate-800">{formatPickupDate(job.pickupDate)}</div>
-                        <div className="text-[11px] text-slate-600">{job.pickupSlot}</div>
-                        <div className="mt-0.5 text-[11px] text-slate-500">
-                          Region: {regionLabel(job.pickupRegion)}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        <td className="px-3 py-2 align-top">
+                          <div className="text-xs text-slate-800">{formatPickupDate(job.pickupDate)}</div>
+                          <div className="text-[11px] text-slate-600">{job.pickupSlot}</div>
+                          <div className="mt-0.5 text-[11px] text-slate-500">Region: {regionLabel(job.pickupRegion)}</div>
+                        </td>
+
+                     <td className="px-3 py-2 align-top">
+  <div className="flex flex-wrap gap-1">
+    {deliveryTypeBadge(delivery)}
+    {routeTypeBadge(route)}
+  </div>
+</td>
+
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
 
@@ -1180,22 +1194,18 @@ const handleCloseDetail = () => {
           <div className="w-full max-w-md rounded-xl bg-white p-4 shadow-xl">
             <h2 className="text-sm font-semibold text-slate-900">Assign driver</h2>
             <p className="mt-1 text-[11px] text-slate-600">
-              Job <span className="font-mono font-medium">{assignModal.job.publicId}</span> ·{" "}
-              {assignModal.job.customerName}
+              Job <span className="font-mono font-medium">{assignModal.job.publicId}</span> · {assignModal.job.customerName}
             </p>
 
             {(() => {
               const recommendedId = getRecommendedDriverId(assignModal.job);
-              const recommendedDriver = recommendedId
-                ? activeDrivers.find((d) => d.id === recommendedId)
-                : undefined;
+              const recommendedDriver = recommendedId ? activeDrivers.find((d) => d.id === recommendedId) : undefined;
               if (!recommendedDriver) return null;
 
               return (
                 <p className="mt-2 text-[11px] text-emerald-700">
                   Recommended: <span className="font-medium">{recommendedDriver.name}</span> (
-                  {regionLabel(recommendedDriver.primaryRegion)} ·{" "}
-                  {driverJobCounts[recommendedDriver.id] ?? 0} jobs today)
+                  {regionLabel(recommendedDriver.primaryRegion)} · {driverJobCounts[recommendedDriver.id] ?? 0} jobs today)
                 </p>
               );
             })()}
@@ -1218,8 +1228,8 @@ const handleCloseDetail = () => {
 
                   return (
                     <option key={d.id} value={d.id}>
-                      {d.name} · {d.vehicleType.toUpperCase()} · {regionLabel(d.primaryRegion)} · Jobs today:{" "}
-                      {jobsToday} / {d.maxJobsPerDay}
+                      {d.name} · {d.vehicleType.toUpperCase()} · {regionLabel(d.primaryRegion)} · Jobs today: {jobsToday} /{" "}
+                      {d.maxJobsPerDay}
                       {isRecommended ? "  ⭐ Recommended" : ""}
                     </option>
                   );
@@ -1231,11 +1241,7 @@ const handleCloseDetail = () => {
             </div>
 
             <div className="mt-4 flex items-center justify-between">
-              <button
-                type="button"
-                onClick={closeAssignModal}
-                className="text-xs text-slate-600 hover:text-slate-800"
-              >
+              <button type="button" onClick={closeAssignModal} className="text-xs text-slate-600 hover:text-slate-800">
                 Cancel
               </button>
               <button
@@ -1311,18 +1317,14 @@ const handleCloseDetail = () => {
 
                       {s.hardConstraints && (
                         <div className="mt-3 text-[11px]">
-                          {(Object.entries(s.hardConstraints) as [HardConstraintKey, boolean][]).map(
-                            ([key, passed]) => (
-                              <div key={key} className="flex items-center gap-2">
-                                <span
-                                  className={`h-2 w-2 rounded-full ${passed ? "bg-emerald-500" : "bg-red-500"}`}
-                                />
-                                <span className="text-slate-600">
-                                  {key} {passed ? "✓" : "✗"}
-                                </span>
-                              </div>
-                            )
-                          )}
+                          {(Object.entries(s.hardConstraints) as [HardConstraintKey, boolean][]).map(([key, passed]) => (
+                            <div key={key} className="flex items-center gap-2">
+                              <span className={`h-2 w-2 rounded-full ${passed ? "bg-emerald-500" : "bg-red-500"}`} />
+                              <span className="text-slate-600">
+                                {key} {passed ? "✓" : "✗"}
+                              </span>
+                            </div>
+                          ))}
                         </div>
                       )}
                     </div>
@@ -1331,24 +1333,14 @@ const handleCloseDetail = () => {
               </div>
             </div>
 
-            <button
-              onClick={closeDebugDrawer}
-              className="mt-4 w-full rounded-lg bg-slate-800 py-2 text-xs text-white hover:bg-slate-900"
-            >
+            <button onClick={closeDebugDrawer} className="mt-4 w-full rounded-lg bg-slate-800 py-2 text-xs text-white hover:bg-slate-900">
               Close
             </button>
           </div>
         </div>
       )}
 
-      <JobDetailModal
-  open={!!selectedJobId}
-  detail={detail}
-  loading={detailLoading}
-  error={detailError}
-  onClose={handleCloseDetail}
-/>
-
+      <JobDetailModal open={!!selectedJobId} detail={detail} loading={detailLoading} error={detailError} onClose={handleCloseDetail} />
     </div>
   );
 }
