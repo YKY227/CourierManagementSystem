@@ -1,8 +1,1 @@
-{
-  "/admin/settings/page": "app/admin/settings/page.js",
-  "/admin/dashboard/page": "app/admin/dashboard/page.js",
-  "/admin/jobs/page": "app/admin/jobs/page.js",
-  "/(public-pages)/booking/steps/summary/page": "app/(public-pages)/booking/steps/summary/page.js",
-  "/(public-pages)/booking/steps/confirmation/page": "app/(public-pages)/booking/steps/confirmation/page.js",
-  "/(public-pages)/booking/steps/delivery-type/page": "app/(public-pages)/booking/steps/delivery-type/page.js"
-}
+{}

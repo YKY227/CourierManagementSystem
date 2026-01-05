@@ -1,11 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   async rewrites() {
-    const backend = process.env.BACKEND_INTERNAL_URL || "http://127.0.0.1:3001";
-    return [
-      // Only proxy our backend tunnel
-      { source: "/api/backend/:path*", destination: `${backend}/:path*` },
-    ];
+    const backend =
+      process.env.BACKEND_INTERNAL_URL ||
+      "https://couriermanagementsystem-production-0c9f.up.railway.app";
+
+    return [{ source: "/api/backend/:path*", destination: `${backend}/:path*` }];
   },
 };
 
