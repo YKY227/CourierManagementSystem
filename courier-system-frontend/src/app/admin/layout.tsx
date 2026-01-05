@@ -2,7 +2,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -28,18 +28,21 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
 
+  // ✅ avoid "possibly null" everywhere
+  const safePathname = pathname ?? "";
+
   const [session, setSession] = useState<AdminSession | null>(null);
   const [initialised, setInitialised] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  const isLoginPage = pathname === "/admin/login";
+  const isLoginPage = safePathname === "/admin/login";
 
   // Read session on route change
   useEffect(() => {
     const s = getCurrentAdmin();
     setSession(s);
     setInitialised(true);
-  }, [pathname]);
+  }, [safePathname]);
 
   const isAuthenticated = !!session;
 
@@ -58,11 +61,11 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     }
   }, [initialised, isAuthenticated, isLoginPage, router]);
 
-  // Derived nav info
-  const currentNavItem = useMemo(
-    () => navItems.find((item) => pathname.startsWith(item.href)),
-    [pathname]
-  );
+  // Derived nav info (✅ longest href wins)
+  const currentNavItem = useMemo(() => {
+    const sorted = [...navItems].sort((a, b) => b.href.length - a.href.length);
+    return sorted.find((item) => safePathname.startsWith(item.href));
+  }, [safePathname]);
 
   const breadcrumbText = useMemo(() => {
     const parts = ["Admin"];
@@ -120,7 +123,8 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
 
         <nav className="flex-1 space-y-1 px-2 py-4">
           {navItems.map((item) => {
-            const active = pathname.startsWith(item.href);
+            const active = safePathname.startsWith(item.href);
+
             return (
               <Link
                 key={item.href}
@@ -177,6 +181,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
             >
               {sidebarCollapsed ? "›" : "‹"}
             </button>
+
             <p className="text-sm font-medium text-slate-700">
               {breadcrumbText}
             </p>
@@ -198,9 +203,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
         </header>
 
         {/* Page content */}
-        <main className="flex-1 px-4 py-4 md:px-6">
-          {children}
-        </main>
+        <main className="flex-1 px-4 py-4 md:px-6">{children}</main>
       </div>
     </div>
   );
