@@ -1,3 +1,4 @@
+//src/app/admin/layout.tsx
 "use client";
 
 import type { ReactNode } from "react";
@@ -16,8 +17,19 @@ const navItems = [
   { label: "Drivers", href: "/admin/drivers" },
   { label: "Assignment Policy", href: "/admin/assignment-policy" },
   { label: "Pricing Config", href: "/admin/pricing" },
+  { label: "Rental Inventory", href: "/admin/rental" }, // ✅ NEW
   { label: "Settings", href: "/admin/settings" },
 ];
+
+function isActivePath(currentPath: string, itemHref: string) {
+  // Exact match OR "starts with href + /"
+  // Examples:
+  // - /admin/rental should activate /admin/rental
+  // - /admin/rental/edit/123 should also activate /admin/rental
+  if (currentPath === itemHref) return true;
+  if (currentPath.startsWith(itemHref + "/")) return true;
+  return false;
+}
 
 export default function AdminLayout({ children }: AdminLayoutProps) {
   const pathname = usePathname();
@@ -59,7 +71,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   // Derived nav info (✅ longest href wins)
   const currentNavItem = useMemo(() => {
     const sorted = [...navItems].sort((a, b) => b.href.length - a.href.length);
-    return sorted.find((item) => safePathname.startsWith(item.href));
+    return sorted.find((item) => isActivePath(safePathname, item.href));
   }, [safePathname]);
 
   const breadcrumbText = useMemo(() => {
@@ -113,13 +125,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
 
         <nav className="flex-1 space-y-1 px-2 py-4">
           {navItems.map((item) => {
-            // ✅ admin active logic
-            // - exact match OR prefix match
-            // - longest href wins anyway via currentNavItem, but keep nav highlight consistent:
-            const active =
-              safePathname === item.href ||
-              safePathname.startsWith(item.href + "/") ||
-              safePathname.startsWith(item.href);
+            const active = isActivePath(safePathname, item.href);
 
             return (
               <Link
